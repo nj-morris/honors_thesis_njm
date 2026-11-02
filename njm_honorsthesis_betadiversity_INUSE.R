@@ -15,20 +15,32 @@ library(ggplot2)
 library(ggpubr)
 library(reshape2)
 library(phyloseq)
+library(RColorBrewer)
+library(microbiome)
 
+#### Original phyloseq, for reference ####
+phyloseq_geo_njm_OG <- readRDS("~/Library/CloudStorage/OneDrive-UniversityofArizona/Cornell/ht_njm/ht_njm_R/honors_thesis_njm/phyloseq_geo_njm_OG.RDS")
+phyloseq_geo_njm_OG ### 445 samples - with negative controls, unrarefied
+sample_data(phyloseq_geo_njm_OG)$read_depth <- sample_sums(phyloseq_geo_njm_OG)
+meta_all <- meta(phyloseq_geo_njm_OG)
+
+phyloseq_ht_njm_USE ### 428 samples, negatives removed, unrarefied, decontam run
+sample_data(phyloseq_ht_njm_USE)$read_depth <- sample_sums(phyloseq_ht_njm_USE)
+meta_all <- meta(phyloseq_ht_njm_USE) 
+
+##### Using here: 
 physeqBeta_rare <- readRDS("~/Library/CloudStorage/OneDrive-UniversityofArizona/Cornell/ht_njm/ht_njm_R/honors_thesis_njm/physeqBeta_rare_taxabarplot.rds")
-# Set working directory
+meta_all <- meta(physeqBeta_rare)
+physeqBeta_rare # 393 samples, after rarefaction and decontam, 3322 unique ASVs 
 
 
 ##### Create taxa bar plots #####
 
-
-################# UPDATED ###############
 #### Phyla - incubation
 # Taxa bar plot for incubation
 physeq_incub_rare<- subset_samples(physeqBeta_rare, Capture_Number=="1")
 #physeq_incub_rare<- subset_samples(physeq_incub_rare, Individual_Treatment=="Control")
-
+# 224 samples
 
 # Extract taxonomy table
 TAXtab <- as.data.frame(tax_table(physeq_incub_rare))
@@ -63,7 +75,7 @@ phylum_tab_melted1 = phylum_tab_melted[!is.na(phylum_tab_melted$group),]
 phylum_tab_melted1$Phylum = ifelse(phylum_tab_melted1$Phylum %in% top10,
                                    phylum_tab_melted1$Phylum, "others")
 
-
+### individual version
 ggplot(phylum_tab_melted1,aes(x = sample_names, y = value, fill = Phylum))+
   geom_bar(position="fill", stat="identity", width = 1, color = NA)+
   facet_grid(.~group, scales = "free") + 
@@ -79,8 +91,33 @@ ggplot(phylum_tab_melted1,aes(x = sample_names, y = value, fill = Phylum))+
        y = "Relative Abundance") +
   scale_y_continuous(expand = c(0, 0)) 
   
-  
-  
+### averaged by location
+order <- c("others", top10)
+phylum_tab_melted1$Phylum <- factor(phylum_tab_melted1$Phylum, levels = order)
+
+pal <- setNames(c("lightgrey", brewer.pal(10, "Paired")), order)
+
+ggplot(phylum_tab_melted1,aes(x = group, y = value, fill = Phylum))+
+  geom_bar(position="fill", stat="identity", width = 1.5, color = NA)+
+  facet_grid(.~group, scales = "free") + 
+  scale_fill_manual(values = pal) +     theme_classic() +
+  theme(strip.text = element_text(size = 12),
+        legend.text  = element_text(size = 12),  
+        legend.title = element_text(size = 12),
+        axis.title = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 13, face = "bold"),  
+        axis.text = element_text(size = 12),     
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "right"
+  ) +
+  labs(
+    title = "Phylum averaged by location during incubation",
+    x = "Location",
+    y = "Relative Abundance",
+    fill = "16S Phylum"
+  ) +
+  scale_y_continuous(expand = c(0, 0))
 
 
   # Family level
@@ -123,6 +160,33 @@ ggplot(phylum_tab_melted1,aes(x = sample_names, y = value, fill = Phylum))+
          y = "Relative Abundance") +
     scale_y_continuous(expand = c(0, 0))
   
+  ### averaged
+  order <- c("others", top10)
+  f_tab_melted1$Family <- factor(f_tab_melted1$Family, levels = order)
+  
+  pal <- setNames(c("lightgrey", brewer.pal(10, "Paired")), order)
+  
+  ggplot(f_tab_melted1,aes(x = group, y = value, fill = Family))+
+    geom_bar(position="fill", stat="identity", width = 1.5, color = NA)+
+    facet_grid(.~group, scales = "free") + 
+    scale_fill_manual(values = pal) +     theme_classic() +
+    theme(strip.text = element_text(size = 12),
+          legend.text  = element_text(size = 12),  
+          legend.title = element_text(size = 12),
+          axis.title = element_text(size = 14, face = "bold"),
+          plot.title = element_text(size = 13, face = "bold"),  
+          axis.text = element_text(size = 12),     
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          legend.position = "right"
+    ) +
+    labs(
+      title = "Family averaged by location during incubation",
+      x = "Sample ID",
+      y = "Relative Abundance",
+      fill = "16S Family"
+    ) +
+    scale_y_continuous(expand = c(0, 0))
   
 # Genera
 
@@ -168,6 +232,33 @@ ggplot(phylum_tab_melted1,aes(x = sample_names, y = value, fill = Phylum))+
            y = "Relative Abundance") +
       scale_y_continuous(expand = c(0, 0)) 
     
+### averaged
+    order <- c("others", top10)
+    g_tab_melted1$Genus <- factor(g_tab_melted1$Genus, levels = order)
+    
+    pal <- setNames(c("lightgrey", brewer.pal(10, "Paired")), order)
+    
+    ggplot(g_tab_melted1,aes(x = group, y = value, fill = Genus))+
+      geom_bar(position="fill", stat="identity", width = 1.5, color = NA)+
+      facet_grid(.~group, scales = "free") + 
+      scale_fill_manual(values = pal) +     theme_classic() +
+      theme(strip.text = element_text(size = 12),
+            legend.text  = element_text(size = 12),  
+            legend.title = element_text(size = 12),
+            axis.title = element_text(size = 14, face = "bold"),
+            plot.title = element_text(size = 13, face = "bold"),  
+            axis.text = element_text(size = 12),     
+            axis.text.x = element_blank(),
+            axis.ticks.x = element_blank(),
+            legend.position = "right"
+      ) +
+      labs(
+        title = "Genus averaged by location during incubation",
+        x = "Location",
+        y = "Relative Abundance",
+        fill = "16S Genus"
+      ) +
+      scale_y_continuous(expand = c(0, 0))
     
 
 # Provisioning: physeqBeta_rareP (control only)
@@ -175,7 +266,7 @@ ggplot(phylum_tab_melted1,aes(x = sample_names, y = value, fill = Phylum))+
     # subset !
     physeqBetarareP<- subset_samples(physeqBeta_rare, Capture_Number=="3")
     physeqBeta_rareP<- subset_samples(physeqBetarareP, Individual_Treatment=="Control")
-    
+    # 53 samples 
     
 # Taxa bar plot for provisioning
 
@@ -227,6 +318,34 @@ ggplot(phylum_tab_melted1,aes(x = sample_names, y = value, fill = Phylum))+
        y = "Relative Abundance") +
   scale_y_continuous(expand = c(0, 0)) 
 
+### averaged by location
+order <- c("others", top10)
+phylum_tab_melted1$Phylum <- factor(phylum_tab_melted1$Phylum, levels = order)
+
+pal <- setNames(c("lightgrey", brewer.pal(10, "Paired")), order)
+
+ggplot(phylum_tab_melted1,aes(x = group, y = value, fill = Phylum))+
+  geom_bar(position="fill", stat="identity", width = 1.5, color = NA)+
+  facet_grid(.~group, scales = "free") + 
+  scale_fill_manual(values = pal) +     theme_classic() +
+  theme(strip.text = element_text(size = 12),
+        legend.text  = element_text(size = 12),  
+        legend.title = element_text(size = 12),
+        axis.title = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 13, face = "bold"),  
+        axis.text = element_text(size = 12),     
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "right"
+  ) +
+  labs(
+    title = "Phyla averaged by location during provisioning",
+    x = "Sample ID",
+    y = "Relative Abundance",
+    fill = "16S Phylum"
+  ) +
+  scale_y_continuous(expand = c(0, 0))
+
 
 # Family level
 f_tab = aggregate(t(ASVtab) ~ TAXtab$Family, FUN = "sum") ## sum all the ASV together in the same sample
@@ -268,6 +387,33 @@ ggplot(f_tab_melted1,aes(x = sample_name, y = value, fill = Family))+
        y = "Relative Abundance") +
   scale_y_continuous(expand = c(0, 0))
 
+### averaged
+order <- c("others", top10)
+f_tab_melted1$Family <- factor(f_tab_melted1$Family, levels = order)
+
+pal <- setNames(c("lightgrey", brewer.pal(10, "Paired")), order)
+
+ggplot(f_tab_melted1,aes(x = group, y = value, fill = Family))+
+  geom_bar(position="fill", stat="identity", width = 1.5, color = NA)+
+  facet_grid(.~group, scales = "free") + 
+  scale_fill_manual(values = pal) +     theme_classic() +
+  theme(strip.text = element_text(size = 12),
+        legend.text  = element_text(size = 12),  
+        legend.title = element_text(size = 12),
+        axis.title = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 13, face = "bold"),  
+        axis.text = element_text(size = 12),     
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "right"
+  ) +
+  labs(
+    title = "Family averaged by location during provisioning",
+    x = "Location",
+    y = "Relative Abundance",
+    fill = "16S Family"
+  ) +
+  scale_y_continuous(expand = c(0, 0))
 
 # Genera
 
@@ -307,90 +453,40 @@ ggplot(g_tab_melted1, aes(x = sample_name, y = value, fill = Genus)) +
        y = "Relative Abundance") +
   scale_y_continuous(expand = c(0, 0)) 
 
-########older
+####
+order <- c("others", top10)
+g_tab_melted1$Genus <- factor(g_tab_melted1$Genus, levels = order)
 
-# Phyla
+pal <- setNames(c("lightgrey", brewer.pal(10, "Paired")), order)
 
-      phylum_tab = aggregate(t(ASVtab) ~ TAXtab$Phylum, FUN = "sum") ## sum all the ASV together in the same sample
-      rownames(phylum_tab) = phylum_tab$`TAXtab$Phylum`
-      total_ab_phyla = rowSums(phylum_tab1)/sum(rowSums(phylum_tab1))
-      total_ab_phyla = total_ab_phyla*100
-      names(total_ab_phyla) = phylum_tab$`TAXtab$Phylum`
-      total_ab_phyla
-      top10 = names(sort(total_ab_phyla, decreasing = TRUE))
-      top10 = top10[1:10]
-      top10
-      
-      
-      phylum_tab_melted = melt(phylum_tab, value = phylum_tab$`TAXtab$Phylum`) ## This melt the table
-      
-      colnames(phylum_tab_melted)[1:2] = c("Phylum", "sample_name")
-      phylum_tab_melted$group = metadata$Location[match(phylum_tab_melted$sample_name, metadata$sample_name)]
-      
-      phylum_tab_melted1 = phylum_tab_melted[!is.na(phylum_tab_melted$group),]
-      phylum_tab_melted1$Phylum = ifelse(phylum_tab_melted1$Phylum %in% top10,
-                                         phylum_tab_melted1$Phylum, "others")
-      
-      
-      ggplot(phylum_tab_melted1,aes(x = group, y = value, fill = Phylum))+
-        geom_bar(position="fill", stat="identity")+
-        scale_fill_brewer(palette = "Paired") + 
-        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-        ylab("Relative abundance") +
-        theme_classic() + labs(title = "Phylum at provisioning",
-                               x = "Location") 
+ggplot(g_tab_melted1,aes(x = group, y = value, fill = Genus))+
+  geom_bar(position="fill", stat="identity", width = 1.5, color = NA)+
+  facet_grid(.~group, scales = "free") + 
+  scale_fill_manual(values = pal) +     theme_classic() +
+  theme(strip.text = element_text(size = 12),
+        legend.text  = element_text(size = 12),  
+        legend.title = element_text(size = 12),
+        axis.title = element_text(size = 14, face = "bold"),
+        plot.title = element_text(size = 13, face = "bold"),  
+        axis.text = element_text(size = 12),     
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "right"
+  ) +
+  labs(
+    title = "Genus averaged by location during provisioning",
+    x = "Location",
+    y = "Relative Abundance",
+    fill = "16S Genus"
+  ) +
+  scale_y_continuous(expand = c(0, 0))
 
-# Genera
-    
-      g_tab = aggregate(t(ASVtab) ~ TAXtab$Genus, FUN = "sum") ## sum all the ASV together in the same sample
-      rownames(g_tab) = g_tab$`TAXtab$Genus`
-      total_ab_g = rowSums(g_tab1)/sum(rowSums(g_tab1))
-      total_ab_g = total_ab_g*100
-      names(total_ab_g) = g_tab$`TAXtab$Genus`
-      total_ab_g
-      top15 = names(sort(total_ab_g, decreasing = TRUE))
-      top15 = top15[1:15]
-      top15
-      
-      
-      g_tab_melted = melt(g_tab, value = g_tab$`TAXtab$Genus`) ## This melt the table
-      
-      colnames(g_tab_melted)[1:2] = c("Genus", "sample_name")
-      g_tab_melted$group = metadata$Location[match(g_tab_melted$sample_name, metadata$sample_name)]
-      
-      g_tab_melted1 = g_tab_melted[!is.na(g_tab_melted$group),]
-      g_tab_melted1$Genus = ifelse(g_tab_melted1$Genus %in% top15,
-                                   g_tab_melted1$Genus, "others")
-      
-      
-      library(ggplot2)
-      library(RColorBrewer)
-      
-      color_palette <- colorRampPalette(brewer.pal(12, "Paired"))(length(unique(g_tab_melted1$Genus)))
-      
-      ggplot(g_tab_melted1, aes(x = group, y = value, fill = Genus)) +
-        geom_bar(position = "fill", stat = "identity") +
-        scale_fill_manual(values = color_palette) +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-        ylab("Relative abundance") +
-        theme_classic() +
-        labs(title = "Genera at Provisioning", x = "Location")
-    
-    
-    library(ggplot2)
-    library(RColorBrewer)
-    
-    # Generate 15 distinct colors (you can change "Set3" to other palettes)
-    color_palette <- colorRampPalette(brewer.pal(12, "Paired"))(length(unique(g_tab_melted1$Genus)))
-    
-    ggplot(g_tab_melted1, aes(x = group, y = value, fill = Genus)) +
-      geom_bar(position = "fill", stat = "identity") +
-      scale_fill_manual(values = color_palette) +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-      ylab("Relative abundance") +
-      theme_classic() +
-      labs(title = "Taxa - Provisioning - Genus", x = "Location")
-  
+############# Beta Diversity analyses #########
+
+
+
+
+
 
 
 #Upload ASV, taxonomy, tree and metadata files to phyloseq:
@@ -573,38 +669,11 @@ physeqBeta_rareC
 
 physeqBeta_rareI <- subset_samples(physeqBeta_rare2, Capture_Number == "1")
 
-otu<-as(otu_table(physeqBeta_rareI),"matrix")
-otu_biom<-make_biom(data=otu)
-write_biom(otu_biom,"otu_biom_rarefied_incubation.biom")
-
 physeqBeta_rareP <- subset_samples(physeqBeta_rareC, Capture_Number == "3")
 
-otu<-as(otu_table(physeqBeta_rareP),"matrix")
-otu_biom<-make_biom(data=otu)
-write_biom(otu_biom,"otu_biom_rarefied_provisioning.biom")
+
 
 ###########################################################################################
-
-##### Export rarefied ASV table and taxonomy into qiime2 for taxabarplot #####
-
-#Export taxonomy table as "tax.txt"
-
-tax<-as(tax_table(physeqBeta_rare),"matrix")
-tax_cols <- colnames(tax)
-tax<-as.data.frame(tax)
-tax$taxonomy<-do.call(paste, c(tax[tax_cols], sep=";"))
-for(co in tax_cols) tax[co]<-NULL
-write.table(tax, "tax_2025.txt", quote=FALSE, col.names=FALSE, sep="\t")
-
-#Export feature/OTU table as a biom table
-######DO NOT TRANSFORM OR THE FEATURES AND SAMPLES WILL BE SWITCHED
-
-library(biomformat);packageVersion("biomformat")
-
-otu<-as(otu_table(physeqBeta_rareC),"matrix")
-otu_biom<-make_biom(data=otu)
-write_biom(otu_biom,"otu_biom_rarefiedC.biom")
-
 #################### BETA DIVERSITYYYY ############
 physeqBeta_rare <- physeqRare
 # Subset to Incubation only

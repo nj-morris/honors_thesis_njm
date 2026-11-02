@@ -5,9 +5,8 @@
 
 # to do list
 # change lm -> lmer + add random effects and covariates
-# get versions of alpha data straight that shit confusing
-# check decontam --- make sure not taking out major taxa!!!
-  # contamination is often from the samples themselves
+# make versions of alpha data more clear 
+
 library(phyloseq)
 library(dplyr)
 library(ggplot2)
@@ -20,15 +19,19 @@ library(emmeans)
 library(gtsummary)
 library(microbiome)
 library(MiscMetabar)
+library(visreg)
 
 
 # read in phyloseq object
+# not rarefied, but decontam run and negatives removed
 geo_phylo <- readRDS("~/Library/CloudStorage/OneDrive-UniversityofArizona/Cornell/ht_njm/ht_njm_R/honors_thesis_njm/phyloseq_ht_njm_USE.rds")
 # view sample data
-peek <- sample_data(geo_phylo, errorIfNULL=TRUE)
+peek <- meta(geo_phylo)
 
-# remove samples not in study
-geo_phylo<- subset_samples(geo_phylo, !Capture_Number == "2")
+# remove samples not in present study
+geo_phylo<- subset_samples(geo_phylo, !Capture_Number == "2") # some NY birds had 3 samples
+# subset to only control birds at provisioning, to remove effects of treatment
+# treatments occurred after the incubation sample was collected
 geo_phylo<- subset_samples(geo_phylo, !(Individual_Treatment %in% c("Dulled", "Low_Tape", "Predator") & Capture_Number == "3"))
 
 # add run as a covariate
@@ -88,6 +91,13 @@ str(physeqMeta) # 277 samples
 alphaData <- meta(physeqMeta) ## use this to convert to dataframe to save! :) 
 alphaData <- read.csv("alphaData_geo.csv")
 
+# add run
+alphaData$run <- ifelse(alphaData$Location == "New_York", 1, 2)
+
+# remove cap 2
+alphaData <- alphaData %>%
+  filter(!(Capture_Number == "2"))
+
 # Independent variables should be vectors = factors (age, treatment, unit, box) #
 alphaData$Location <- as.factor(alphaData$Location)
 alphaData$Site <- as.factor(alphaData$Site)
@@ -99,11 +109,21 @@ alphaData$Capture_Number <- as.factor(alphaData$Capture_Number)
 alphaData$Capture_Date <- as.factor(alphaData$Capture_Date)
 alphaData$Manipulated_after_1st_capture <- as.factor(alphaData$Manipulated_after_1st_capture)
 
+################ Check Data, Transform as Needed ##############################
+# check data spread
+hist(alphaData$Shannon) # negatively skewed ~ tail to the left
+hist(alphaData$Chao1) # slightly negatively skewed? 
+
+# transform with Tukey
+alphaData$ShannonT <- transformTukey(alphaData$Shannon)
+alphaData$Chao1T <- transformTukey(alphaData$Chao1)
+
 #Dependent variables should be numeric (any alpha diversity metric, cort_base, cort_stress, mass, headbill. etc) #
 str(alphaData) # Check factors vs numeric
 
-write.csv(alphaData, file = "alphaData_geo_incprov_notrarefied.CSV", row.names = FALSE)
+# write.csv(alphaData, file = "alphaData_geo_incprov_notrarefied.CSV", row.names = FALSE)
 table(alphaData$Location, by = alphaData$Capture_Number)
+
 ### Filter to isolate individuals with samples at both time points, 
 # to be able to calculate differences in alpha diversity and mass #
 
@@ -147,7 +167,7 @@ alphaData$Capture <- ifelse(alphaData$Capture_Number == 1, "Incubation", "Provis
 #Reorder so locations in alphabetical order (only need to do once and it will apply to all plots)
 
 alphaData$Location <- factor(alphaData$Location, levels=c("Alaska", "New_York", "Tennessee", "Wyoming"))
-alphaData$Location <- factor(alphaData$Location, levels=c("New_York", "Tennessee", "Wyoming", "Alaska"))
+#alphaData$Location <- factor(alphaData$Location, levels=c("New_York", "Tennessee", "Wyoming", "Alaska"))
 
 #Reorder so captures are in order (only need to do once and it will apply to all plots)
 
@@ -160,55 +180,60 @@ FCI_alphaData <- FCD_alphaData %>%
 FCP_alphaData <- FCD_alphaData %>%
   filter(!(Capture_Number == "1"))
 
+# add to look at timelag effect
+FCI_alphaData <- FCI_alphaData %>%
+  left_join(
+    FCP_alphaData %>% select(Individual_Band, mass_provisioning = Mass),
+    by = "Individual_Band"
+  )
+
 # Split data into incubation and provisioning
 
 incubation <-subset(alphaData, Capture_Number == "1")
-table(incubation$Location) #224 samples
+table(incubation$Location) #224 samples --- all
 
 provisioning <-subset(alphaData, Capture_Number == "3")
 provisioning <-subset(provisioning, Individual_Treatment == "Control")
 table(provisioning$Location) #53
-samples
+
 
 # Split data into Location
 
 # Alaska
-
-table(Alaska$Location) #72 samples
+alphaData_Alaska <- subset(alphaData, Location == "Alaska") # Alaska
 Alaska <- subset(FCI_alphaData, Location == "Alaska") # Alaska, filtered, control, incubation
+AlaskaI <- subset(incubation, Location == "Alaska") # Alaska, incubation
+AlaskaP <- subset(FCP_alphaData, Location == "Alaska")
+table(Alaska$Location) # 8 samples
 
 
 # Tennessee
-
+alphaData_Tennessee <-subset(alphaData,Location == "Tennessee")
 Tennessee <- subset(FCI_alphaData, Location == "Tennessee") # TN, filtered, control, incubation
+TennesseeI <- subset(incubation, Location == "Tennessee") # TN, incubation
+TennesseeP <- subset(FCP_alphaData, Location == "Tennessee") # TN, incubation
 table(Tennessee$Location) #15 samples
 
 # Wyoming
-
 alphaData_Wyoming <-subset(alphaData,Location == "Wyoming")
 table(alphaData_Wyoming$Location) #73 samples---ONLY INCUBATION!!!!
-Wyoming <- subset(alphaData, Location == "Wyoming")
+WyomingI <- subset(alphaData, Location == "Wyoming")
 
 # New York
-
 alphaData_New_York <- subset(alphaData, Location == "New_York")
 table(alphaData_New_York$Location) # 159 samples
 New_York <- subset(FCI_alphaData, Location == "New_York") # NY, filtered, control, incubation
+New_YorkI <- subset(incubation, Location == "New_York") # NY,  incubation
+New_YorkP <- subset(FCP_alphaData, Location == "New_York") # NY, filtered, control, prov
 
 # remove Wyoming 
 alphaData2 <- filter(alphaData, !Location == "Wyoming")
-################ Check Data, Transform as Needed ##############################
-# check data spread
-hist(alphaData$Shannon) # negatively skewed ~ tail to the left
-hist(alphaData$Chao1) # slightly negatively skewed? 
+
+
 hist(FCI_alphaData$Shannon_Difference)
 hist(FCI_alphaData$Chao1_Difference)
 
-
-# transform with Tukey
-alphaData$ShannonT <- transformTukey(alphaData$Shannon)
-alphaData$Chao1T <- transformTukey(alphaData$Chao1)
-
+location_colors <- c("#4682B4", "#B31B1B","#f77f00", "darkgreen"  )
 
 ggplot(alphaData, aes(x = Location, y = ShannonT, fill = factor(Capture))) +
   geom_boxplot(position = position_dodge(width = 0.8)) +
@@ -224,17 +249,16 @@ ggplot(alphaData, aes(x = Location, y = Chao1T, fill = factor(Capture))) +
   theme_bw() +
   scale_fill_manual(values = location_colors)
 
-##### LM Log Alpha Microbial Diversity x Population #####
+##### LMER Alpha Microbial Diversity x Population #####
 
 
 # Shannon Tukey at Inc x Location
 
-##### LM Alpha Microbial Diversity x Population #####
+##### LMER Alpha Microbial Diversity x Population #####
 
-# ShannonT at Inc x Location 
-mod_STincub_location <- lmer(ShannonT ~ Location + Age + run + (1|Site), data = incubation) # 
-summary(mod_STincub_location, ddf = "Kenward-Roger")
-
+# ShannonT at Inc x Location # can't include both run and location, only one!
+mod_STincub_location <- lmer(ShannonT ~ Location + Age + (1|Site), data = incubation) # 
+summary(mod_STincub_location)
 
 mod_STincub_location %>% tbl_regression(exponentiate = FALSE,
   pvalue_fun = label_style_pvalue(digits = 3),) |>
@@ -264,11 +288,6 @@ ggplot(incubation, aes(x = Location, y = ShannonT, fill = Location)) +
   scale_fill_manual(values = location_colors)
 
 
-
-
-location_colors <- c("#4682B4", "#B31B1B","#f77f00", "darkgreen"  )
-
-
 # Extract pairwise comparisons
 pairwise_df <- as.data.frame(emmeans_stI_L$contrasts)
 colnames(pairwise_df)[1] <- "contrast"
@@ -285,13 +304,12 @@ pairwise_df <- pairwise_df %>%
     group1 = sub(" - .*", "", contrast),  # Extract first location
     group2 = sub(".*- ", "", contrast)    # Extract second location
   ) %>%
-  filter(p_label != "ns") %>%  # 🚀 Remove non-significant comparisons
+  filter(p_label != "ns") %>%  # Remove non-significant comparisons
   mutate(
     y.position = seq(max(incubation$ShannonT) + 0.2,  # Start higher
                      by = 0.15,  # Increase spacing between brackets
                      length.out = n())  
   )
-
 
 
 incubation$Location <- as.factor(incubation$Location)
@@ -311,11 +329,9 @@ ggplot(incubation, aes(x = Location, y = ShannonT, color = Location, fill = Loca
        x = "Location", y = "Shannon Diversity Index (Tukey)", fill = "Location") 
 
 
-
-
 # ChaoT at Inc x Location 
 mod_CTincub_location <- lmer(Chao1T ~ Location + Age + (1|Site), data = incubation) # 
-summary(mod_CTincub_location, ddf = "Kenward-Roger")
+summary(mod_CTincub_location)
 qqnorm(resid(mod_CTincub_location))
 
 
@@ -340,7 +356,7 @@ contrast_df %>%
   kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Extract pairwise comparisons
-pairwise_df <- as.data.frame(emmeans_ctI_L$`pairwise differences of Location`)
+pairwise_df <- as.data.frame(emmeans_ctI_L$contrasts)
 
 colnames(pairwise_df)[1] <- "contrast"
 
@@ -357,7 +373,7 @@ pairwise_df <- pairwise_df %>%
     group1 = sub(" - .*", "", contrast),  # Extract first location
     group2 = sub(".*- ", "", contrast)    # Extract second location
   ) %>%
-  filter(p_label != "ns") %>%  # 🚀 Remove non-significant comparisons
+  filter(p_label != "ns") %>%  #  Remove non-significant comparisons
   mutate(
     y.position = seq(max(incubation$Chao1T) + 0.2,  # Start higher
                      by = 0.15,  # Increase spacing between brackets
@@ -403,7 +419,7 @@ emmeans_sd_L
 
 
 # Extract pairwise comparisons
-pairwise_df <- as.data.frame(emmeans_sd_L$`pairwise differences of Location, Capture`)
+pairwise_df <- as.data.frame(emmeans_sd_L$contrasts)
 colnames(pairwise_df)[1] <- "contrast"
 
 pairwise_df <- pairwise_df %>%
@@ -418,7 +434,7 @@ pairwise_df <- pairwise_df %>%
     group1 = sub(" - .*", "", contrast),  # Extract first location
     group2 = sub(".*- ", "", contrast)    # Extract second location
   ) %>%
-  filter(p_label != "ns") %>%  # 🚀 Remove non-significant comparisons
+  filter(p_label != "ns") %>%  #  Remove non-significant comparisons
   mutate(
     y.position = seq(max(F_alphaData$ShannonT) + 0.2,  # Start higher
                      by = 0.15,  # Increase spacing between brackets
@@ -526,7 +542,7 @@ pairwise_df <- pairwise_df %>%
     group1 = sub(" - .*", "", contrast),  # Extract first location
     group2 = sub(".*- ", "", contrast)    # Extract second location
   ) %>%
- # filter(p_label != "ns") %>%  # 🚀 Remove non-significant comparisons
+ # filter(p_label != "ns") %>%  #  Remove non-significant comparisons
   mutate(
     y.position = seq(max(provisioning$ShannonT) + 0.2,  # Start higher
                      by = 0.15,  # Increase spacing between brackets
@@ -599,6 +615,160 @@ tab_model(mod_mass_prov_location, p.val = "kr", show.df = TRUE, file = "mod_resu
 emmeans(mod_mass_prov_location, list(pairwise~Location), adjust = "tukey")
 # all insignificant
 
+##### Static: Mass x GM #####
+
+mod <- lmer(Mass ~ scale(ShannonT)*Capture + Location + Age + run +  (1|Individual_Band) 
+            + (1|Site), data = alphaData)
+summary(mod) # 
+
+visreg(mod, "ShannonT", by = "Capture",
+       type = "conditional",  # Controls for random effects
+       ylab = "Mass", 
+       xlab = "Shannon (Tukey)",
+       gg = TRUE) 
+
+ggplot(alphaData, aes(x = ShannonT, y = Mass, color = Location, fill = Location)) + geom_point(alpha = 0.4) +
+  scale_color_manual(values = location_colors) +
+  facet_wrap(~Capture) + 
+  geom_smooth(method = "lm") +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  labs(
+    x = "Shannon Diversity Index (Tukey)",
+    y = "Mass (g)",
+    title = "Mass ~ Shannon across the breeding season",
+  )
+
+m <- emmeans(mod, list(pairwise~scale(ShannonT)*Location*Capture), adjust = "tukey")
+
+contrast_df <- as.data.frame(m$`pairwise differences of ShannonT, Location, Capture`)
+contrast_df %>%
+  kable(caption = "emmeans: ShannonT between captures and locations") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 10)
+
+
+# individual locations and captures
+# AK
+mod <- lmer(Mass ~ scale(ShannonT) + Age + (1|Site), data = AlaskaI)
+summary(mod) # 0.351
+mod <- lmer(Mass ~ scale(ShannonT) + Age + (1|Site), data = AlaskaP)
+summary(mod) #  0.783    
+
+# NY
+mod <- lmer(Mass ~ scale(ShannonT) + Age + (1|Site), data = New_YorkI)
+summary(mod) # 0.680343
+mod <- lmer(Mass ~ scale(ShannonT) + Age + (1|Site), data = New_YorkP)
+summary(mod) #  0.0906 .
+
+# TN
+mod <- lmer(Mass ~ scale(ShannonT) + Age + (1|Site), data = TennesseeI)
+summary(mod) # 0.1980
+mod <- lmer(Mass ~ scale(ShannonT) + Age + (1|Site), data = TennesseeP)
+summary(mod) # 0.451
+
+# WY
+mod <- lmer(Mass ~ scale(ShannonT) + Age + (1|Site), data = WyomingI)
+summary(mod) # 0.951
+
+# chao1
+mod <- lmer(Mass ~ Chao1T*Capture_Number + Location + Age + (1|Individual_Band) 
+            + (1|Site), data = alphaData2)
+summary(mod) # 0.126
+
+ggplot(alphaData, aes(x = Chao1T, y = Mass, color = Location, fill = Location)) + geom_point(alpha = 0.4) +
+  scale_color_manual(values = location_colors) +
+  facet_wrap(~Capture) + 
+  geom_smooth(method = "lm") +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  labs(
+    x = "Chao1 Diversity Index (Tukey)",
+    y = "Mass (g)",
+    title = "Chao1 diversity as a predictor of mass across the breeding season",
+  )
+
+# individual locations and captures
+# AK
+mod <- lmer(Mass ~ scale(Chao1T) + Age + (1|Site), data = AlaskaI)
+summary(mod) # 0.5205
+mod <- lmer(Mass ~ scale(Chao1T) + Age + (1|Site), data = AlaskaP)
+summary(mod) #  0.460    
+
+# NY
+mod <- lmer(Mass ~ scale(Chao1T) + Age + (1|Site), data = New_YorkI)
+summary(mod) #  0.01035 * 
+mod <- lmer(Mass ~ scale(Chao1T) + Age + (1|Site), data = New_YorkP)
+summary(mod) #  0.322
+
+# TN
+mod <- lmer(Mass ~ scale(Chao1T) + Age + (1|Site), data = TennesseeI)
+summary(mod) # 0.2775
+mod <- lmer(Mass ~ scale(Chao1T) + Age + (1|Site), data = TennesseeP)
+summary(mod) # 0.993
+
+# WY
+mod <- lmer(Mass ~ scale(Chao1T) + Age + (1|Site), data = WyomingI)
+summary(mod) # 0.577
+
+##### time lag effect? ######
+
+# compare mass at provisioning with Shannon at incubation
+mod <- lmer(mass_provisioning ~ ShannonT + Location + Age  
+            + (1|Site), data = FCI_alphaData)
+summary(mod) # 0.539
+
+ggplot(FCI_alphaData, aes(x = ShannonT, y = mass_provisioning, color = Location, fill = Location)) + geom_point(alpha = 0.4) +
+  scale_color_manual(values = location_colors) +
+  geom_smooth(method = "lm") +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  labs(
+    x = "Shannon Diversity Index (Tukey) at Incubation",
+    y = "Mass (g) at Provisioning",
+    title = "Mass at Provisioning predicted by ShannonT at Incubation",
+  )
+
+# AK
+mod <- lmer(mass_provisioning ~ scale(ShannonT) + Age + (1|Site), data = Alaska)
+summary(mod) # 0.664
+
+# NY
+mod <- lmer(mass_provisioning ~ scale(ShannonT) + Age + (1|Site), data = New_York)
+summary(mod) #  0.284 
+
+# TN
+mod <- lmer(mass_provisioning ~ scale(ShannonT) + Age + (1|Site), data = Tennessee)
+summary(mod) # 0.0206 *
+
+# compare mass at provisioning with Chao1 at incubation
+mod <- lmer(mass_provisioning ~ Chao1T + Location + Age  
+            + (1|Site), data = FCI_alphaData) 
+summary(mod)# 0.735
+
+ggplot(FCI_alphaData, aes(x = Chao1T, y = mass_provisioning, color = Location, fill = Location)) + geom_point(alpha = 0.4) +
+  scale_color_manual(values = location_colors) +
+  geom_smooth(method = "lm") +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  labs(
+    x = "Chao1 Diversity Index (Tukey) at Incubation",
+    y = "Mass (g) at Provisioning",
+    title = "Mass at Provisioning predicted by Chao1T at Incubation",
+  )
+
+# AK
+mod <- lmer(mass_provisioning ~ scale(Chao1T) + Age + (1|Site), data = Alaska)
+summary(mod) # 0.723
+
+# NY
+mod <- lmer(mass_provisioning ~ scale(Chao1T) + Age + (1|Site), data = New_York)
+summary(mod) #  0.129 
+
+# TN
+mod <- lmer(mass_provisioning ~ scale(Chao1T) + Age + (1|Site), data = Tennessee)
+summary(mod) # 0.558
+
+#### Mass Difference x GM #####
 # Mass difference x Location
 
 mod_mass_diff_location <- lmer(Mass_Difference ~ Location + Age + (1|Site), data = FCIM_alphaData)
@@ -715,41 +885,7 @@ mod_MD_STIncAK %>%
     source_note = paste("n =", nrow(Alaska))
   )
 
-####### mass 
 
-mod <- lmer(Mass ~ scale(ShannonT)*Capture*Location + Age + run+  (1|Individual_Band) 
-            + (1|Site), data = alphaData)
-summary(mod, ddf = "Kenward-Roger") # 
-
-visreg(mod, "ShannonT", by = "Capture",
-       type = "conditional",  # Controls for random effects
-       ylab = "Mass", 
-       xlab = "Shannon (Tukey)",
-       gg = TRUE) 
-
-ggplot(alphaData, aes(x = Chao1T, y = Mass, color = Location, fill = Location)) + geom_point(alpha = 0.4) +
-  scale_color_manual(values = location_colors) +
- facet_wrap(~Capture) + 
-  geom_smooth(method = "lm") +
- scale_fill_manual(values = location_colors) +
-  theme_bw() +
-  labs(
-    x = "Chao1 Diversity Index (Tukey)",
-    y = "Mass (g)",
-    title = "Chao1 diversity as a predictor of mass across the breeding season",
-  )
-  
-m <- emmeans(mod, list(pairwise~scale(ShannonT)*Location*Capture), adjust = "tukey")
-
-contrast_df <- as.data.frame(m$`pairwise differences of ShannonT, Location, Capture`)
-contrast_df %>%
-  kable(caption = "emmeans: ShannonT between captures and locations") %>%
-  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 10)
-
-
-mod <- lmer(Mass ~ Chao1T*Capture_Number + Location + Age + (1|Individual_Band) 
-            + (1|Site), data = alphaData2)
-summary(mod, ddf = "Kenward-Roger")
 
 mod_MD_S_L<- lmer(Mass_Difference ~ scale(ShannonT)*Location + Age + Mass + (1|Site), data = FCIM_alphaData)
 summary(mod_MD_S_L, ddf = "Kenward-Roger")
