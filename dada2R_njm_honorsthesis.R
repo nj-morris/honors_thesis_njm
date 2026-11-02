@@ -215,3 +215,7 @@ list.files(miseq_path)
   unique(physeq2@tax_table@.Data[,"Species"])
   View(tax_table(physeq2))
   
+  library(phyloseq)
+  phyloseq_ht_njm_decontam_true
+  sum(sample_sums(phyloseq_ht_njm_decontam_true))
+  

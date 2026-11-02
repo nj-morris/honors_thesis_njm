@@ -7,12 +7,12 @@ library(dplyr)
 library(tidyr)
 library(phyloseq)
 library(rcompanion)
-library(microViz)
-library(microshades)
+#library(microViz)
+#library(microshades)
 library(cowplot)
 library(vegan)
 library(patchwork)
-library(speedyseq)
+#library(speedyseq)
 #library(NBZIMM)
 library(magrittr)
 library(lubridate)
@@ -23,27 +23,32 @@ library(ggpubr)
 library(tibble)
 library(permute)
 library(forcats)
-
+library(scales)
+library(ggpattern)
 library(MicEco)
 library(glmmTMB)
 
 library(devtools)
-install_github("Russel88/MicEco")
+#install_github("Russel88/MicEco")
 
 pseq <- readRDS("phyloseq_ht_njm_USE.rds")
 sample_data(pseq)$sample_reads <- sample_sums(pseq)
 
 pseq <- subset_samples(pseq, Capture_Number %in% c("1", "3"))
-
-inc <- subset_samples(pseq, Capture_Number == "1")
-prov <- subset_samples(pseq, Capture_Number == "3")
 pseq <- subset_samples(pseq, !Location == "Wyoming")
-pseq <- subset_samples(pseq, Location == "New_York")
-
 pseq <- subset_samples(pseq, !(Individual_Treatment %in% c("Dulled", "Low_Tape", "Predator") & Capture_Number == "3"))
 
 
+inc <- subset_samples(pseq, Capture_Number == "1")
+prov <- subset_samples(pseq, Capture_Number == "3")
+#pseq <- subset_samples(pseq, Location == "New_York")
 
+
+
+# reorder !!!!!!!!!!! essential
+sample_data(pseq)$Capture_Number <- factor(
+  sample_data(pseq)$Capture_Number,
+  levels = c(3, 1))
 sample_data(pseq)$sample_reads <- sample_sums(pseq)
 
 # To compare
@@ -123,7 +128,7 @@ phy_rel <- transform_sample_counts(htp, function(x) x / sum(x))
 # Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
 abundant_taxa <- taxa_names(filter_taxa(phy_rel, function(x) mean(x) >= 0.01, TRUE))
 # Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
-phy_pruned <- ps_prune(htp, min.samples = 2, min.reads = 10)
+phy_pruned <- ps_prune(htp, min.samples = 10, min.reads = 10)
 prevalent_taxa <- taxa_names(phy_pruned)
 # Keep only taxa that are both abundant and prevalent
 keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
@@ -216,7 +221,7 @@ f_rel <- transform_sample_counts(htf, function(x) x / sum(x))
 # Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
 abundant_taxa <- taxa_names(filter_taxa(f_rel, function(x) mean(x) >= 0.001, TRUE))
 # Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
-f_pruned <- ps_prune(htf, min.samples = 2, min.reads = 10)
+f_pruned <- ps_prune(htf, min.samples = 10, min.reads = 10)
 prevalent_taxa <- taxa_names(f_pruned)
 # Keep only taxa that are both abundant and prevalent
 keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
@@ -285,7 +290,35 @@ ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
 ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
 dim(ht_loop_sig)#
 View(ht_loop_sig) #
-write.csv(ht_loop_sig,"ht_inctoprov_family_DA_noWY.csv") ### SAVE
+#write.csv(ht_loop_sig,"ht_inctoprov_family_DA_noWY.csv") ### SAVE
+
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Family = fct_reorder(Family, est_rep, .desc = FALSE))
+
+DA_fam<-ggplot(ht_loop_sig, aes(x=Family, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Family", tag = "A",
+       title = "Family: Incubation to Provisioning (AK, NY TN)") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_fam
 ######################### genus level
 
 
@@ -295,9 +328,9 @@ htg # 1399
 # Convert counts to relative abundance
 g_rel <- transform_sample_counts(htg, function(x) x / sum(x))
 # Prune taxa with mean relative abundance 
-abundant_taxa <- taxa_names(filter_taxa(g_rel, function(x) mean(x) >= 0.01, TRUE))
+abundant_taxa <- taxa_names(filter_taxa(g_rel, function(x) mean(x) >= 0.001, TRUE))
 # Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
-g_pruned <- ps_prune(htg, min.samples = 2, min.reads = 10)
+g_pruned <- ps_prune(htg, min.samples = 10, min.reads = 10)
 prevalent_taxa <- taxa_names(g_pruned)
 # Keep only taxa that are both abundant and prevalent
 keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
@@ -319,7 +352,7 @@ htg_df2=reshape(data=htg_df1, idvar = c("sample_names", "Individual_Band", "Indi
 names(htg_df2) #which cols are taxa - cols 14:70
 
 #clean up column names
-colnames(htg_df2)[15:30] <- gsub("^Abundance\\.", "", colnames(htg_df2)[15:30])
+colnames(htg_df2)[15:85] <- gsub("^Abundance\\.", "", colnames(htg_df2)[15:85])
 names(htg_df2) #check, good
 
 #now standardize/scale continuous variables for modelling in the loop (like density)
@@ -328,16 +361,16 @@ names(htg_df2) #check, good
 
 # IF FAILS:
 #remove some taxa that don't converge by name and run these later in another way
-View(htg_df2)
-mat_fam_df3 <- mat_fam_df2  %>% dplyr::select(-Cyanobiaceae, -Marine_Group_II, -Clade_I, -Actinomarinaceae, -SAR86_clade,-`UCG-010`, -Saprospiraceae, -`Marinimicrobia_(SAR406_clade)`, -`AEGEAN-169_marine_group`) # -Cryomorphaceae,Nitrosopumilaceae,Sanguibacteraceae)
-names(mat_fam_df3) #check, good
+#View(htg_df2)
+#mat_fam_df3 <- mat_fam_df2  %>% dplyr::select(-Cyanobiaceae, -Marine_Group_II, -Clade_I, -Actinomarinaceae, -SAR86_clade,-`UCG-010`, -Saprospiraceae, -`Marinimicrobia_(SAR406_clade)`, -`AEGEAN-169_marine_group`) # -Cryomorphaceae,Nitrosopumilaceae,Sanguibacteraceae)
+#ames(mat_fam_df3) #check, good
 
 htg_df3 <- htg_df2
 
 
 ####
 ht_loop <- NULL #create NULL df to fill
-for (i in 15:30){
+for (i in 15:85){
   htg_df3$taxa<-as.numeric(htg_df3[,i]) #for i in which subset of taxa (columns) to iterate through
   mmb<-glmmTMB(taxa ~ Capture_Number + Location + Mass + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
                data=htg_df3,
@@ -381,8 +414,35 @@ ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
 ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
 dim(ht_loop_sig)#
 View(ht_loop_sig) #
-write.csv(ht_loop_sig,"ht_inctoprov_genus_DA_noWY.csv") ### SAVE
+#write.csv(ht_loop_sig,"ht_inctoprov_genus_DA_noWY.csv") ### SAVE
 
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Genus = fct_reorder(Genus, est_rep, .desc = FALSE))
+
+DA_genus<-ggplot(ht_loop_sig, aes(x=Genus, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Genus", tag = "B",
+       title = "Genus: Incubation to Provisioning (AK, NY, TN)") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_genus 
 
 ####### plot ##########
 
@@ -417,6 +477,1185 @@ ggplot(long_taxa, aes(x = value)) +
   theme_minimal() +
   labs(title = "Histograms of Taxa Abundances", x = "Taxa Count", y = "Frequency")
 
+######## subset to each location! ###############
+
+#### NEW YORK ####
+NY <- subset_samples(pseq, Location == "New_York")
+#####
+#### Phylum Level
+htp = tax_glom(NY, taxrank = "Phylum") #glom , now 35
+htp #35 
+# Convert counts to relative abundance
+phy_rel <- transform_sample_counts(htp, function(x) x / sum(x))
+# Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
+abundant_taxa <- taxa_names(filter_taxa(phy_rel, function(x) mean(x) >= 0.01, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+phy_pruned <- ps_prune(htp, min.samples = 10, min.reads = 10)
+prevalent_taxa <- taxa_names(phy_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htp)
+pruned # 14 - 6 at 1%
+
+htp_df <- psmelt(pruned) 
+names(htp_df)
+
+htp_df1 <- htp_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Phylum")]
+names(htp_df1) #keep columns needed
+dim(htp_df1)
+htp_df2=reshape(data=htp_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Phylum"), timevar = "Phylum", direction = "wide")
+names(htp_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htp_df2)[15:19] <- gsub("^Abundance\\.", "", colnames(htp_df2)[15:19])
+names(htp_df2) #check, good
+
+#now standardize/scale continuous variables for modelling in the loop (like density)
+# stdize=function(x) {(x - mean(x))/sd(x)}
+# mat_fam_df2$local_density_50_scaled<-stdize(terr_fam_df2$local_density_50) #for comparison of estimates
+
+# IF FAILS:
+#remove some taxa that don't converge by name and run these later in another way
+View(htp_df2)
+mat_fam_df3 <- mat_fam_df2  %>% dplyr::select(-Cyanobiaceae, -Marine_Group_II, -Clade_I, -Actinomarinaceae, -SAR86_clade,-`UCG-010`, -Saprospiraceae, -`Marinimicrobia_(SAR406_clade)`, -`AEGEAN-169_marine_group`) # -Cryomorphaceae,Nitrosopumilaceae,Sanguibacteraceae)
+names(mat_fam_df3) #check, good
+
+htp_df3 <- htp_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:19){
+  htp_df3$taxa<-as.numeric(htp_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + Mass + offset(log(sample_reads))  + (1|Site) , 
+               data=htp_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Phylum = colnames(htp_df3)[i], 
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),8)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+
+############# family level <3
+
+htf = tax_glom(NY, taxrank = "Family") #glom , now 35
+htf # 408
+# Convert counts to relative abundance
+f_rel <- transform_sample_counts(htf, function(x) x / sum(x))
+# Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
+abundant_taxa <- taxa_names(filter_taxa(f_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+f_pruned <- ps_prune(htf, min.samples = 10, min.reads = 10)
+prevalent_taxa <- taxa_names(f_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htf)
+pruned # 61
+
+htf_df <- psmelt(pruned) 
+names(htf_df)
+
+htf_df1 <- htf_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Family")]
+names(htf_df1) #keep columns needed
+dim(htf_df1)
+htf_df2=reshape(data=htf_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Family"), timevar = "Family", direction = "wide")
+names(htf_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htf_df2)[15:69] <- gsub("^Abundance\\.", "", colnames(htf_df2)[15:69])
+names(htf_df2) #check, good
+
+
+htf_df3 <- htf_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:69){
+  htf_df3$taxa<-as.numeric(htf_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+               data=htf_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Family = colnames(htf_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+#write.csv(ht_loop_sig,"ht_inctoprov_family_DA_n.csv") ### SAVE
+
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Family = fct_reorder(Family, est_rep, .desc = FALSE))
+
+DA_fam<-ggplot(ht_loop_sig, aes(x=Family, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Family", tag = "A",
+       title = "Family: Incubation to Provisioning - New York") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_fam
+######################### genus level
+
+
+#### genus Level
+htg = tax_glom(NY, taxrank = "Genus") #glom , now 35
+htg # 1399
+# Convert counts to relative abundance
+g_rel <- transform_sample_counts(htg, function(x) x / sum(x))
+# Prune taxa with mean relative abundance 
+abundant_taxa <- taxa_names(filter_taxa(g_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+g_pruned <- ps_prune(htg, min.samples = 10, min.reads = 10)
+prevalent_taxa <- taxa_names(g_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htg)
+pruned # 129
+
+htg_df <- psmelt(pruned) 
+names(htg_df)
+
+htg_df1 <- htg_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Genus")]
+names(htg_df1) #keep columns needed
+dim(htg_df1)
+htg_df2=reshape(data=htg_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Genus"), timevar = "Genus", direction = "wide")
+names(htg_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htg_df2)[15:81] <- gsub("^Abundance\\.", "", colnames(htg_df2)[15:81])
+names(htg_df2) #check, good
+
+#now standardize/scale continuous variables for modelling in the loop (like density)
+# stdize=function(x) {(x - mean(x))/sd(x)}
+# mat_fam_df2$local_density_50_scaled<-stdize(terr_fam_df2$local_density_50) #for comparison of estimates
+
+# IF FAILS:
+#remove some taxa that don't converge by name and run these later in another way
+
+htg_df3 <- htg_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:81){
+  htg_df3$taxa<-as.numeric(htg_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+               data=htg_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Genus = colnames(htg_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+mmb<-glmmTMB(Metamycoplasma ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+             data=htg_df3,
+             #ziformula = ~1, #zero - inflated, depends on level aglomm
+             control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+             family = nbinom1)
+summary(mmb)
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+# write.csv(ht_loop_sig,"ht_inctoprov_genus_DA_noWY.csv") ### SAVE
+
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Genus = fct_reorder(Genus, est_rep, .desc = FALSE))
+
+DA_genus<-ggplot(ht_loop_sig, aes(x=Genus, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Genus", tag = "B",
+       title = "Genus: Incubation to Provisioning - New York") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_genus 
+
+
+#### Alaska ####
+AK <- subset_samples(pseq, Location == "Alaska")
+#### Phylum Level
+htp = tax_glom(AK, taxrank = "Phylum") #glom , now 35
+htp #35 
+# Convert counts to relative abundance
+phy_rel <- transform_sample_counts(htp, function(x) x / sum(x))
+# Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
+abundant_taxa <- taxa_names(filter_taxa(phy_rel, function(x) mean(x) >= 0.01, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+phy_pruned <- ps_prune(htp, min.samples = 10, min.reads = 10)
+prevalent_taxa <- taxa_names(phy_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htp)
+pruned # 14 - 6 at 1%
+
+htp_df <- psmelt(pruned) 
+names(htp_df)
+
+htp_df1 <- htp_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Phylum")]
+names(htp_df1) #keep columns needed
+dim(htp_df1)
+htp_df2=reshape(data=htp_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Phylum"), timevar = "Phylum", direction = "wide")
+names(htp_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htp_df2)[15:20] <- gsub("^Abundance\\.", "", colnames(htp_df2)[15:20])
+names(htp_df2) #check, good
+
+#now standardize/scale continuous variables for modelling in the loop (like density)
+# stdize=function(x) {(x - mean(x))/sd(x)}
+# mat_fam_df2$local_density_50_scaled<-stdize(terr_fam_df2$local_density_50) #for comparison of estimates
+
+
+htp_df3 <- htp_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:20){
+  htp_df3$taxa<-as.numeric(htp_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + Mass + offset(log(sample_reads))  + (1|Site) , 
+               data=htp_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Phylum = colnames(htp_df3)[i], 
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),8)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+
+############# family level <3
+
+htf = tax_glom(AK, taxrank = "Family") #glom , now 35
+htf # 408
+# Convert counts to relative abundance
+f_rel <- transform_sample_counts(htf, function(x) x / sum(x))
+# Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
+abundant_taxa <- taxa_names(filter_taxa(f_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+f_pruned <- ps_prune(htf, min.samples = 10, min.reads = 10)
+prevalent_taxa <- taxa_names(f_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htf)
+pruned # 61
+
+htf_df <- psmelt(pruned) 
+names(htf_df)
+
+htf_df1 <- htf_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Family")]
+names(htf_df1) #keep columns needed
+dim(htf_df1)
+htf_df2=reshape(data=htf_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Family"), timevar = "Family", direction = "wide")
+names(htf_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htf_df2)[15:37] <- gsub("^Abundance\\.", "", colnames(htf_df2)[15:37])
+names(htf_df2) #check, good
+
+
+htf_df3 <- htf_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:37){
+  htf_df3$taxa<-as.numeric(htf_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+               data=htf_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Family = colnames(htf_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+#write.csv(ht_loop_sig,"ht_inctoprov_family_DA_n.csv") ### SAVE
+
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Family = fct_reorder(Family, est_rep, .desc = FALSE))
+
+DA_fam<-ggplot(ht_loop_sig, aes(x=Family, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Family", tag = "A",
+       title = "Family: Incubation to Provisioning - Alaska") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_fam
+
+######################### genus level
+
+
+#### genus Level
+htg = tax_glom(AK, taxrank = "Genus") #glom , now 35
+htg # 1399
+# Convert counts to relative abundance
+g_rel <- transform_sample_counts(htg, function(x) x / sum(x))
+# Prune taxa with mean relative abundance 
+abundant_taxa <- taxa_names(filter_taxa(g_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+g_pruned <- ps_prune(htg, min.samples = 10, min.reads = 10)
+prevalent_taxa <- taxa_names(g_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htg)
+pruned # 129
+
+htg_df <- psmelt(pruned) 
+names(htg_df)
+
+htg_df1 <- htg_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Genus")]
+names(htg_df1) #keep columns needed
+dim(htg_df1)
+htg_df2=reshape(data=htg_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Genus"), timevar = "Genus", direction = "wide")
+names(htg_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htg_df2)[15:33] <- gsub("^Abundance\\.", "", colnames(htg_df2)[15:33])
+names(htg_df2) #check, good
+
+#now standardize/scale continuous variables for modelling in the loop (like density)
+# stdize=function(x) {(x - mean(x))/sd(x)}
+# mat_fam_df2$local_density_50_scaled<-stdize(terr_fam_df2$local_density_50) #for comparison of estimates
+
+# IF FAILS:
+#remove some taxa that don't converge by name and run these later in another way
+
+htg_df3 <- htg_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:33){
+  htg_df3$taxa<-as.numeric(htg_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+               data=htg_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Genus = colnames(htg_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+# write.csv(ht_loop_sig,"ht_inctoprov_genus_DA_noWY.csv") ### SAVE
+
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Genus = fct_reorder(Genus, est_rep, .desc = FALSE))
+
+DA_genus<-ggplot(ht_loop_sig, aes(x=Genus, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Genus", tag = "B",
+       title = "Genus: Incubation to Provisioning - Alaska") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_genus 
+
+#### TN ####
+TN <- subset_samples(pseq, Location == "Tennessee")
+
+#### Phylum Level
+htp = tax_glom(TN, taxrank = "Phylum") #glom , now 35
+htp #35 
+# Convert counts to relative abundance
+phy_rel <- transform_sample_counts(htp, function(x) x / sum(x))
+# Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
+abundant_taxa <- taxa_names(filter_taxa(phy_rel, function(x) mean(x) >= 0.01, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+phy_pruned <- ps_prune(htp, min.samples = 10, min.reads = 10)
+prevalent_taxa <- taxa_names(phy_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htp)
+pruned # 14 - 6 at 1%
+
+htp_df <- psmelt(pruned) 
+names(htp_df)
+
+htp_df1 <- htp_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Phylum")]
+names(htp_df1) #keep columns needed
+dim(htp_df1)
+htp_df2=reshape(data=htp_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Phylum"), timevar = "Phylum", direction = "wide")
+names(htp_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htp_df2)[15:19] <- gsub("^Abundance\\.", "", colnames(htp_df2)[15:19])
+names(htp_df2) #check, good
+
+#now standardize/scale continuous variables for modelling in the loop (like density)
+# stdize=function(x) {(x - mean(x))/sd(x)}
+# mat_fam_df2$local_density_50_scaled<-stdize(terr_fam_df2$local_density_50) #for comparison of estimates
+
+# IF FAILS:
+#remove some taxa that don't converge by name and run these later in another way
+
+htp_df3 <- htp_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:19){
+  htp_df3$taxa<-as.numeric(htp_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + Mass + offset(log(sample_reads))  + (1|Site) , 
+               data=htp_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Phylum = colnames(htp_df3)[i], 
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),8)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+############# family level <3
+
+htf = tax_glom(TN, taxrank = "Family") #glom , now 35
+htf # 408
+# Convert counts to relative abundance
+f_rel <- transform_sample_counts(htf, function(x) x / sum(x))
+# Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
+abundant_taxa <- taxa_names(filter_taxa(f_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+f_pruned <- ps_prune(htf, min.samples = 5, min.reads = 10)
+prevalent_taxa <- taxa_names(f_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htf)
+pruned # 61
+
+htf_df <- psmelt(pruned) 
+names(htf_df)
+
+htf_df1 <- htf_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Family")]
+names(htf_df1) #keep columns needed
+dim(htf_df1)
+htf_df2=reshape(data=htf_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Family"), timevar = "Family", direction = "wide")
+names(htf_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htf_df2)[15:68] <- gsub("^Abundance\\.", "", colnames(htf_df2)[15:68])
+names(htf_df2) #check, good
+
+
+htf_df3 <- htf_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:68){
+  htf_df3$taxa<-as.numeric(htf_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+               data=htf_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Family = colnames(htf_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+#write.csv(ht_loop_sig,"ht_inctoprov_family_DA_n.csv") ### SAVE
+
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Family = fct_reorder(Family, est_rep, .desc = FALSE))
+
+DA_fam<-ggplot(ht_loop_sig, aes(x=Family, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Family", tag = "A",
+       title = "Family: Incubation to Provisioning - Tennessee") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_fam
+
+######################### genus level
+
+
+#### genus Level
+htg = tax_glom(TN, taxrank = "Genus") #glom , now 35
+htg # 1399
+# Convert counts to relative abundance
+g_rel <- transform_sample_counts(htg, function(x) x / sum(x))
+# Prune taxa with mean relative abundance 
+abundant_taxa <- taxa_names(filter_taxa(g_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+g_pruned <- ps_prune(htg, min.samples = 5, min.reads = 10)
+prevalent_taxa <- taxa_names(g_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htg)
+pruned # 129
+
+htg_df <- psmelt(pruned) 
+names(htg_df)
+
+htg_df1 <- htg_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Genus")]
+names(htg_df1) #keep columns needed
+dim(htg_df1)
+htg_df2=reshape(data=htg_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Genus"), timevar = "Genus", direction = "wide")
+names(htg_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htg_df2)[15:81] <- gsub("^Abundance\\.", "", colnames(htg_df2)[15:81])
+names(htg_df2) #check, good
+
+#now standardize/scale continuous variables for modelling in the loop (like density)
+# stdize=function(x) {(x - mean(x))/sd(x)}
+# mat_fam_df2$local_density_50_scaled<-stdize(terr_fam_df2$local_density_50) #for comparison of estimates
+
+# IF FAILS:
+#remove some taxa that don't converge by name and run these later in another way
+
+htg_df3 <- htg_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:81){
+  htg_df3$taxa<-as.numeric(htg_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+               data=htg_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Capture_Number", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Genus = colnames(htg_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+
+ht_loopg<-data.frame(ht_loop)
+View(ht_loopg) 
+
+#convert class
+ht_loopg$Shapiro<-as.numeric(as.character(ht_loopg$Shapiro))
+ht_loopg$est_rep<-as.numeric(as.character(ht_loopg$est_rep))
+ht_loopg$p_rep<-as.numeric(as.character(ht_loopg$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loopg$p_rep_fdr<-round(p.adjust(ht_loopg$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sigG=subset(ht_loopg, p_rep_fdr <= 0.05) 
+dim(ht_loop_sigG)#
+View(ht_loop_sigG) #
+# write.csv(ht_loop_sig,"ht_inctoprov_genus_DA_noWY.csv") ### SAVE
+
+ht_loop_sigG <- ht_loop_sigG %>%
+  mutate(Genus = fct_reorder(Genus, est_rep, .desc = FALSE))
+
+DA_genus<-ggplot(ht_loop_sigG, aes(x=Genus, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Genus", tag = "B",
+       title = "Genus: Incubation to Provisioning - Tennessee") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_genus 
+
+################### MASS #########################
+
+inc <- subset_samples(pseq, Capture_Number == "1")
+NYI <- subset_samples(inc, Location == "New_York")
+AKI <- subset_samples(inc, Location == "Alaska")
+TNI <- subset_samples(inc, Location == "Tennessee")
+WYI <- subset_samples(inc, Location == "Wyoming")
+
+prov <- subset_samples(pseq, Capture_Number == "3")
+NYP <- subset_samples(prov, Location == "New_York")
+sample_data(NYP)
+AKI <- subset_samples(inc, Location == "Alaska")
+TNI <- subset_samples(inc, Location == "Tennessee")
+
+############# family level <3
+
+htf = tax_glom(NYP, taxrank = "Family") #glom , now 35
+htf # 408
+# Convert counts to relative abundance
+f_rel <- transform_sample_counts(htf, function(x) x / sum(x))
+# Prune taxa with mean relative abundance >= 0.005 (i.e., 0.5%)
+abundant_taxa <- taxa_names(filter_taxa(f_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+f_pruned <- ps_prune(htf, min.samples = 5, min.reads = 10)
+prevalent_taxa <- taxa_names(f_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htf)
+pruned # 61
+
+htf_df <- psmelt(pruned) 
+names(htf_df)
+
+htf_df1 <- htf_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Family")]
+names(htf_df1) #keep columns needed
+dim(htf_df1)
+htf_df2=reshape(data=htf_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Family"), timevar = "Family", direction = "wide")
+names(htf_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htf_df2)[15:53] <- gsub("^Abundance\\.", "", colnames(htf_df2)[15:53])
+names(htf_df2) #check, good
+
+
+htf_df3 <- htf_df2
+
+############ crashed????? idk why... took out site and 
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:53){
+  htf_df3$taxa<-as.numeric(htf_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ scale(Mass)  + offset(log(sample_reads)) + (1|Site), 
+               data=htf_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Mass", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Family = colnames(htf_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+ht_loop<-data.frame(ht_loop)
+View(ht_loop) 
+
+#convert class
+ht_loop$Shapiro<-as.numeric(as.character(ht_loop$Shapiro))
+ht_loop$est_rep<-as.numeric(as.character(ht_loop$est_rep))
+ht_loop$p_rep<-as.numeric(as.character(ht_loop$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loop$p_rep_fdr<-round(p.adjust(ht_loop$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sig=subset(ht_loop, p_rep_fdr <= 0.05) 
+dim(ht_loop_sig)#
+View(ht_loop_sig) #
+#write.csv(ht_loop_sig,"ht_inctoprov_family_DA_n.csv") ### SAVE
+
+ht_loop_sig <- ht_loop_sig %>%
+  mutate(Family = fct_reorder(Family, est_rep, .desc = FALSE))
+
+DA_fam<-ggplot(ht_loop_sig, aes(x=Family, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Mass)", x = "Family", tag = "A",
+       title = "Family: Mass during Incubation - WY") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_fam
+
+######################### genus level
+
+
+#### genus Level
+htg = tax_glom(TNI, taxrank = "Genus") #glom , now 35
+htg # 1399
+# Convert counts to relative abundance
+g_rel <- transform_sample_counts(htg, function(x) x / sum(x))
+# Prune taxa with mean relative abundance 
+abundant_taxa <- taxa_names(filter_taxa(g_rel, function(x) mean(x) >= 0.001, TRUE))
+# Filter by prevalence (e.g., present in >= 2 samples with at least 10 reads)
+g_pruned <- ps_prune(htg, min.samples = 5, min.reads = 10)
+prevalent_taxa <- taxa_names(g_pruned)
+# Keep only taxa that are both abundant and prevalent
+keep_taxa <- intersect(abundant_taxa, prevalent_taxa)
+# Final subsetted phyloseq object
+pruned <- prune_taxa(keep_taxa, htg)
+pruned # 129
+
+htg_df <- psmelt(pruned) 
+names(htg_df)
+
+htg_df1 <- htg_df[,c("Abundance", "sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                     "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                     "sample_reads", "Genus")]
+names(htg_df1) #keep columns needed
+dim(htg_df1)
+htg_df2=reshape(data=htg_df1, idvar = c("sample_names", "Individual_Band", "Individual_Treatment", "Location",
+                                        "Site", "Capture_Number", "Age", "Mass", "Bill.Head", "Flat_Wing", "Fledged", "Fledged_Num", "CIdate", 
+                                        "sample_reads", "Genus"), timevar = "Genus", direction = "wide")
+names(htg_df2) #which cols are taxa - cols 14:70
+
+#clean up column names
+colnames(htg_df2)[15:78] <- gsub("^Abundance\\.", "", colnames(htg_df2)[15:78])
+names(htg_df2) #check, good
+
+#now standardize/scale continuous variables for modelling in the loop (like density)
+# stdize=function(x) {(x - mean(x))/sd(x)}
+# mat_fam_df2$local_density_50_scaled<-stdize(terr_fam_df2$local_density_50) #for comparison of estimates
+
+# IF FAILS:
+#remove some taxa that don't converge by name and run these later in another way
+
+htg_df3 <- htg_df2
+
+
+####
+ht_loop <- NULL #create NULL df to fill
+for (i in 15:78){
+  htg_df3$taxa<-as.numeric(htg_df3[,i]) #for i in which subset of taxa (columns) to iterate through
+  mmb<-glmmTMB(taxa ~ scale(Mass) + offset(log(sample_reads))  + (1|Site), 
+               data=htg_df3,
+               #ziformula = ~1, #zero - inflated, depends on level aglomm
+               control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+               family = nbinom1) #negative binomial, nbinom1 runs better than nbinom2
+  # Shapiro-Wilk test on residuals
+  shap <- as.numeric(shapiro.test(resid(mmb))$p.value)
+  # Extract coefficients & p-values dynamically
+  rep_rows <- grep("Mass", rownames(summary(mmb)$coefficients$cond))
+  coef_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 1], 4)  # Estimates
+  pval_rep <- round(summary(mmb)$coefficients$cond[rep_rows, 4], 4)  # P-values
+  # Create a dataframe for storage
+  df <- data.frame(Column = as.character(i), 
+                   Genus = colnames(htg_df3)[i], ####### change!!!!!!!!!!!!
+                   Shapiro = shap, 
+                   est_rep = coef_rep, 
+                   p_rep = pval_rep)
+  # Append results
+  ht_loop <- rbind(ht_loop, df)
+}
+
+
+ht_loopg<-data.frame(ht_loop)
+View(ht_loopg) 
+
+#convert class
+ht_loopg$Shapiro<-as.numeric(as.character(ht_loopg$Shapiro))
+ht_loopg$est_rep<-as.numeric(as.character(ht_loopg$est_rep))
+ht_loopg$p_rep<-as.numeric(as.character(ht_loopg$p_rep))
+
+#Adjust pvalues for multiple testing
+ht_loopg$p_rep_fdr<-round(p.adjust(ht_loopg$p_rep, method="fdr"),5)
+
+#Subset to significant taxa only
+ht_loop_sigG=subset(ht_loopg, p_rep_fdr <= 0.05) 
+dim(ht_loop_sigG)#
+View(ht_loop_sigG) #
+# write.csv(ht_loop_sig,"ht_inctoprov_genus_DA_noWY.csv") ### SAVE
+
+ht_loop_sigG <- ht_loop_sigG %>%
+  mutate(Genus = fct_reorder(Genus, est_rep, .desc = FALSE))
+
+DA_genus<-ggplot(ht_loop_sigG, aes(x=Genus, y=est_rep)) + 
+  #geom_bar(stat = "identity", width = .7) + 
+  geom_bar_pattern(stat = "identity", position = position_dodge(preserve = "single"),
+                   color = "black", 
+                   pattern_fill = "black",
+                   pattern_angle = 45,
+                   pattern_density = 0.1,
+                   pattern_spacing = 0.025) +
+  theme_bw() + coord_flip() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size=10, color="black"),
+        axis.text = element_text(size=12, color="black"),
+        axis.title = element_text(size=12, color="black"),
+        panel.grid = element_blank(),
+        plot.tag = element_text(size=20)) +
+  scale_fill_manual(values=c("aquamarine4","white")) +
+  scale_pattern_manual(values = c("stripe", "none")) +
+  labs(y="Effect size (Mass)", x = "Genus", tag = "B",
+       title = "Genus: Mass during Incubation - TN") +
+  guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
+         fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
+#theme(aspect.ratio = 4/3.2)
+DA_genus 
 
 
 
@@ -425,15 +1664,7 @@ ggplot(long_taxa, aes(x = value)) +
 
 
 
-
-
-
-
-
-
-
-
-
+############################
 
 
 
@@ -762,8 +1993,7 @@ sigloop$spore<-as.factor(ifelse(sigloop$Genus %in% un_spore, "unknown sporulatio
 
 
 
-library(scales)
-library(ggpattern) #use this  fill=aero, pattern=spore
+ #use this  fill=aero, pattern=spore
 
 ht_loop_sig <- ht_loop_sig %>%
   mutate(Genus = fct_reorder(Genus, est_rep, .desc = FALSE))
@@ -786,8 +2016,8 @@ DA_genus<-ggplot(ht_loop_sig, aes(x=Genus, y=est_rep)) +
         plot.tag = element_text(size=20)) +
   scale_fill_manual(values=c("aquamarine4","white")) +
   scale_pattern_manual(values = c("stripe", "none")) +
-  labs(y="Effect size (Incubation to Provisioning)", x = "Genus", tag = "A",
-       title = "Genus: Inc to Prov") +
+  labs(y="Effect size (Incubation to Provisioning)", x = "Genus", #tag = "A"
+       title = "Genus: Incubation to Provisioning") +
   guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
          fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
 #theme(aspect.ratio = 4/3.2)
@@ -815,7 +2045,7 @@ DA_fam<-ggplot(ht_loop_sig, aes(x=Family, y=est_rep)) +
         plot.tag = element_text(size=20)) +
   scale_fill_manual(values=c("aquamarine4","white")) +
   scale_pattern_manual(values = c("stripe", "none")) +
-  labs(y="Effect size (Incubation to Provisioning)", x = "Family", tag = "A", 
+  labs(y="Effect size (Incubation to Provisioning)", x = "Family", #, tag = "A"
        title = "Family: Incubation to Provisioning") +
   guides(pattern = guide_legend(override.aes = list(fill = "white"),nrow=2),
          fill = guide_legend(override.aes = list(pattern = "none"),nrow=2)) #+ 
@@ -918,3 +2148,15 @@ p_age = ggplot(data = df_fig_age,
         panel.grid.minor.y = element_blank(),
         axis.text.x = element_text(angle = 60, hjust = 1))
 p_age
+
+
+
+### wooof - what is the reference
+
+mmb<-glmmTMB(Carnobacterium ~ Capture_Number + offset(log(sample_reads)) + (1|Individual_Band) + (1|Site), 
+             data=htg_df3,
+             #ziformula = ~1, #zero - inflated, depends on level aglomm
+             control=glmmTMBControl(optCtrl=list(iter.max=1000)),
+             family = nbinom1)
+mmb
+summary(mmb)

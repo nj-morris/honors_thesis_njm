@@ -2,25 +2,17 @@
 # Microbiome Analysis
 # Written by: Jenn Houtz, updated by Natalie Morris
 # Modified from code by: Worsley et al. 2021, Animal Microbiome
-# Taxa bar plot basics from Gabri Schiro
+# Taxa bar plot basics from Gabri
 # Last updated: 7/16/2025
-
-# need to remove singletons, if not already gone
 
 
 # Load libraries
-
 pacman::p_load("ggplot2", "grid", "gridExtra", "emmeans", "phyloseq",
                "vegan", "devtools", "sjPlot", "here", "ape", "philr", "pairwiseAdonis",
                "ggordiplots", "BiodiversityR", "dplyr", "tidyr")
 library(vegan)
 library(ggplot2)
-if(!require("ggpubr")){      # an if condition, if ggpubr is not installed:
-  install.packages("ggpubr") #install ggpubr
-}
-if(!require("reshape2")){      # an if condition, if package is not installed:
-  install.packages("reshape2") #install package
-}
+library(ggpubr)
 library(reshape2)
 library(phyloseq)
 
@@ -254,7 +246,7 @@ f_tab_melted = melt(f_tab, value = Family) ## This melt the table
 colnames(f_tab_melted)[1:2] = c("Family", "sample_name")
 metadata$sample_name = as.factor(rownames(metadata))
 class(f_tab_melted$sample_name)
-f_tab_melted$group = metadata$Location[match(f_tab_melted$sample_name, metadata$sample_names)]
+f_tab_melted$group = metadata$Location[match(f_tab_melted$sample_name, metadata$sample_name)]
 
 f_tab_melted1 = f_tab_melted[!is.na(f_tab_melted$group),]
 f_tab_melted1$Family = ifelse(f_tab_melted1$Family %in% top10,
@@ -613,14 +605,16 @@ otu<-as(otu_table(physeqBeta_rareC),"matrix")
 otu_biom<-make_biom(data=otu)
 write_biom(otu_biom,"otu_biom_rarefiedC.biom")
 
+#################### BETA DIVERSITYYYY ############
+physeqBeta_rare <- physeqRare
 # Subset to Incubation only
 
 physeq_incub_rare<- subset_samples(physeqBeta_rare, Capture_Number=="1")
-physeq_incub_rare #238 samples
+physeq_incub_rare #224 samples
 
 #Extract metadata
 
-incub_beta_data<- data.frame(sample_data(physeq_incub_rare))
+incub_beta_data<- data.frame(sample_data(geo_phylo))
 
 # Look at structure and make sure they are correct data types
 
@@ -630,37 +624,41 @@ incub_beta_data$Location <- factor(incub_beta_data$Location)
 ##### PCoA Incubation location Bray #####
 location_colors <- c("#4682B4", "#B31B1B", "#f77f00", "darkgreen")
 
+install.packages("ggforce")
 library(ggforce)
 ordu = ordinate(physeq_incub_rare, "PCoA", "bray", weighted=FALSE)
 P <- plot_ordination(physeq_incub_rare, ordu, color="Location")
 pca_incub_bray <- P + geom_point(alpha=0.5) + #alpha controls transparency and helps when points are overlapping
   theme_bw() +
   theme(text = element_text(size = 14), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  geom_mark_ellipse(aes(color = Location,
-                        label=Location),
-                    expand = unit(0.5,"mm")) +
-  scale_color_manual(values = location_colors)
+   stat_ellipse(aes(color = Location)) +
+  scale_color_manual(values = location_colors) 
 
 pca_incub_bray
+
+
 
 
 ggsave("pca_incb_bray.pdf", height=4, width=5, device="pdf") # save a PDF 3 inches by 4 inches
 
 # Calculate Bray-Curtis dissimiliary
-locationI_bray <- phyloseq::distance(physeq_incub_rare, method = "bray")
+locationI_bray <- phyloseq::distance(geo_phylo, method = "bray")
 
 perm <- how(nperm = 9999)
 set.seed(5498)
-permanova_incub_bray<- adonis2(locationI_bray ~ Location, data=incub_beta_data, 
+permanova_incub_bray<- adonis2(locationI_bray ~ Location + run, data=incub_beta_data, 
                                permutations = perm, method = "bray", by = "margin")
 permanova_incub_bray
 
 #Export results
 
-str(permanova_incub_bray)
 perm_results_incub_bray <- data.frame(permanova_incub_bray[c(1,2,3,4,5)])
 perm_results_incub_bray
-write.csv(perm_results_incub_bray, "permanova_results_incub_bray.csv")
+perm_results_incub_bray %>%
+  gt() %>%
+  tab_caption("PERMANOVA: Bray-Curtis Dissimilarity by Location (Incubation)") %>%
+  gt_theme_espn()
+
 
 ############################  
 ##### Pairwise permanova - location bray-curtis ######
@@ -678,10 +676,34 @@ perm <- how(nperm = 9999)
 set.seed(549838)
 pairwise_perm_incub_bray <- pairwise.adonis2(locationI_bray ~ Location,
                                              data = incub_beta_data, method="euclidean", by="margin", nperm=perm) 
-pairwise_perm_incub_bray  
+
+# Extract the relevant tables from each comparison
+pairwise_df <- bind_rows(
+  lapply(names(pairwise_perm_incub_bray), function(name) {
+    tbl <- as.data.frame(pairwise_perm_incub_bray[[name]])
+    tbl$Comparison <- name
+    tbl
+  })
+)
+
+pairwise_df$X <- rownames(pairwise_df)
+pairwise_df <- pairwise_df %>%
+  filter(!Comparison == "parent_call") %>%
+  mutate(p_adjusted = p.adjust(`Pr(>F)`, method = "fdr")) %>%
+  relocate(Comparison, .before = everything()) %>%
+    filter(!Comparison == "parent_call") %>%
+  
+  select(Comparison, X, Df, SumOfSqs, R2, F, `Pr(>F)`, p_adjusted)
+
+pairwise_df %>%
+  gt() %>%
+  tab_header(title = "Pairwise PERMANOVA across locations (Incubation)") %>%
+  fmt_number(columns = c(`Pr(>F)`, p_adjusted, F), decimals = 4) %>%
+  gt_theme_guardian()
+
 
 # P value adjustment for multiple comparisons (change these to your p values)
-p.adjusted_pairwise_perm_incub_bray <- p.adjust(c(0.001,0.001,0.001,0.005,0.001, 0.001),method="BH")
+p.adjusted_pairwise_perm_incub_bray <- p.adjust(c(0.001,0.001,0.001,0.004,0.001, 0.001),method="BH")
 p.adjusted_pairwise_perm_incub_bray
 
 # Export results
@@ -694,7 +716,7 @@ write.csv(p.adjusted_pairwise_perm_incub_bray, "p.adjusted_pairwise_perm_incub_b
 ###### Subset to Provisioning only #####
 
 physeq_prov_rare<- subset_samples(physeqBeta_rare, Capture_Number=="3")
-physeq_prov_rare #12 samples
+physeq_prov_rare #53 samples
 
 #Extract metadata
 
@@ -711,10 +733,9 @@ ordu = ordinate(physeq_prov_rare, "PCoA", "bray", weighted=FALSE)
 P <- plot_ordination(physeq_prov_rare, ordu, color="Location")
 pca_prov_bray <- P + geom_point(alpha=0.5) + #alpha controls transparency and helps when points are overlapping
   theme_bw() +
+  scale_color_manual(values = location_colors) +
   theme(text = element_text(size = 14), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
-  geom_mark_ellipse(aes(color = Location,
-                        label=Location),
-                    expand = unit(0.5,"mm"))
+  stat_ellipse(aes(color = Location))
 pca_prov_bray
 
 
@@ -730,40 +751,48 @@ permanova_prov_bray<- adonis2(locationP_bray ~ Location, data=prov_beta_data,
 permanova_prov_bray
 
 #Export results
-
-str(permanova_prov_bray)
 perm_results_prov_bray <- data.frame(permanova_prov_bray[c(1,2,3,4,5)])
-perm_results_prov_bray
-write.csv(perm_results_prov_bray, "permanova_results_prov_bray.csv")
+perm_results_prov_bray %>%
+  gt() %>%
+  tab_caption("PERMANOVA: Bray-Curtis Dissimilarity by Location (Provisioning)") %>%
+  gt_theme_guardian()
+
 
 ############################  
 ##### Pairwise permanova - location bray-curtis ######
 ############################ 
-
-library(devtools)
-
-# run this code before installing packages from Github AHHHHH
-# Sys.setenv(R_REMOTES_STANDALONE="true", build = F)
-#install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
-
-library(pairwiseAdonis)
-
 perm <- how(nperm = 9999)
 set.seed(549838)
 pairwise_perm_prov_bray <- pairwise.adonis2(locationP_bray ~ Location,
                                             data = prov_beta_data, method="euclidean", by="margin", nperm=perm) 
 pairwise_perm_prov_bray  
 
-# P value adjustment for multiple comparisons (change these to your p values)!!!!!!!!!!!!
-p.adjusted_pairwise_perm_prov_bray <- p.adjust(c(0.001, 0.001, 0.001),method="BH")
-p.adjusted_pairwise_perm_prov_bray
 
-# Export results
+# Extract the relevant tables from each comparison
+pairwise_df <- bind_rows(
+  lapply(names(pairwise_perm_prov_bray), function(name) {
+    tbl <- as.data.frame(pairwise_perm_prov_bray[[name]])
+    tbl$Comparison <- name
+    tbl
+  })
+)
 
-write.csv(pairwise_perm_prov_bray, "pairwise_perm_prov_bray2.csv")
+pairwise_df$X <- rownames(pairwise_df)
+pairwise_df <- pairwise_df %>%
+  filter(!Comparison == "parent_call") %>%
+  mutate(p_adjusted = p.adjust(`Pr(>F)`, method = "fdr")) %>%
+  relocate(Comparison, .before = everything()) %>%
+  filter(!Comparison == "parent_call") %>%
+  
+  select(Comparison, X, Df, SumOfSqs, R2, F, `Pr(>F)`, p_adjusted)
 
-write.csv(p.adjusted_pairwise_perm_prov_bray, "p.adjusted_pairwise_perm_prov_bray2.csv")
+pairwise_df %>%
+  gt() %>%
+  tab_header(title = "Pairwise PERMANOVA across locations (Provisioning)") %>%
+  fmt_number(columns = c(`Pr(>F)`, p_adjusted, F), decimals = 4) %>%
+  gt_theme_guardian()
 
+######################### oldddddd ################################
 ##### Subset to Filtered, Incubation, Control only #####
 
 physeq_incub_rare<- subset_samples(physeqBeta_rare, Capture_Number=="1")

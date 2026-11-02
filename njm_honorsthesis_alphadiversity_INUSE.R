@@ -1,7 +1,7 @@
 #### Geographic Comparison of Gut Microbial Flexibility in TRES
 # Microbiome Analysis
 # By Natalie Morris
-# Modified from code by: Worsley et al. 2021, Animal Microbiome
+# Modified from code by: Worsley et al. 2021, Animal Microbiome and Jenn Houtz
 
 # to do list
 # change lm -> lmer + add random effects and covariates
@@ -12,27 +12,49 @@ library(phyloseq)
 library(dplyr)
 library(ggplot2)
 library(kableExtra)
+library(ggpubr)
+library(rcompanion)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(gtsummary)
+library(microbiome)
+library(MiscMetabar)
+
 
 # read in phyloseq object
 geo_phylo <- readRDS("~/Library/CloudStorage/OneDrive-UniversityofArizona/Cornell/ht_njm/ht_njm_R/honors_thesis_njm/phyloseq_ht_njm_USE.rds")
 # view sample data
 peek <- sample_data(geo_phylo, errorIfNULL=TRUE)
 
+# remove samples not in study
+geo_phylo<- subset_samples(geo_phylo, !Capture_Number == "2")
+geo_phylo<- subset_samples(geo_phylo, !(Individual_Treatment %in% c("Dulled", "Low_Tape", "Predator") & Capture_Number == "3"))
+
+# add run as a covariate
+samdf <- data.frame(sample_data(geo_phylo))
+# add "run" variable: 1 for NY, 2 for all others
+samdf$run <- ifelse(samdf$Location == "New_York", 1, 2)
+# push updated sample data back into phyloseq object
+sample_data(geo_phylo) <- samdf
+
+
 ##### RAREFY READS TO MIN SAMPLING DEPTH ######
 
 # Look at lowest sample depth
 
-sample_sums(geo_phylo) # lowest M17A0023 = 58 reads 
+sort(sample_sums(geo_phylo)) # lowest M17A0023 = 58 reads 
+sample_data(geo_phylo)$read_depth <- sample_sums(geo_phylo)
 
-#rarefy to 1000 and set seed before rarefying (28367), so that results are reproducible  
+#rarefy to 5000 and set seed before rarefying (28367), so that results are reproducible  
 physeqRare<-rarefy_even_depth(geo_phylo, 5000, rngseed = 28367)
 # 35 samples removed
 
 # OTUs removed after subsampling- leaves 6803 taxa and 393 samples
 physeqRare
 sample_sums(physeqRare)
-sample_data(physeqRare)$read_depth <- sample_sums(physeqRare)
 
+saveRDS(physeqRare, file = "geo_phyloseq_rare_July2025.RDS")
 ##### CALCULATE ALPHA DIVERSITY METRICS ####
 
 # calculate chao1 (species richness), shannon using estimate_richness()
@@ -48,8 +70,22 @@ head(physeqMeta)
 physeqMeta$Chao1 <- richnessEst$Chao1
 physeqMeta$Shannon <- richnessEst$Shannon
 head(physeqMeta)
-str(physeqMeta) #420 samples
+str(physeqMeta) # 277 samples
 
+alphaData <- meta(physeqMeta) ## use this to convert to dataframe to save! :) (package microbiome)
+alphaData <- read.csv("alphaData_geo.csv")
+
+######### non - rare version .....
+richnessEst<-estimate_richness(geo_phylo, split=TRUE, measures= c("Chao1", "Shannon"))
+#add alpha diversity metrics to metadata
+physeqMeta <- as.data.frame(sample_data(geo_phylo))
+head(physeqMeta)
+physeqMeta$Chao1 <- richnessEst$Chao1
+physeqMeta$Shannon <- richnessEst$Shannon
+head(physeqMeta)
+str(physeqMeta) # 277 samples
+
+alphaData <- meta(physeqMeta) ## use this to convert to dataframe to save! :) 
 alphaData <- read.csv("alphaData_geo.csv")
 
 # Independent variables should be vectors = factors (age, treatment, unit, box) #
@@ -66,10 +102,8 @@ alphaData$Manipulated_after_1st_capture <- as.factor(alphaData$Manipulated_after
 #Dependent variables should be numeric (any alpha diversity metric, cort_base, cort_stress, mass, headbill. etc) #
 str(alphaData) # Check factors vs numeric
 
-library(dplyr)
-alphaData <- alphaData %>% 
-  filter(Capture_Number !="2")
-write.csv(alphaData, "alphaData_geo_incprov.csv")
+write.csv(alphaData, file = "alphaData_geo_incprov_notrarefied.CSV", row.names = FALSE)
+table(alphaData$Location, by = alphaData$Capture_Number)
 ### Filter to isolate individuals with samples at both time points, 
 # to be able to calculate differences in alpha diversity and mass #
 
@@ -77,12 +111,13 @@ F_alphaData <- alphaData %>%
   group_by(Individual_Band) %>%
   filter(all(c(1, 3) %in% Capture_Number)) %>%
   ungroup()
-table(F_alphaData$Location) # 58 Alaska samples, 60 Tennessee samples, 82 New York samples
+table(F_alphaData$Location) # X Alaska samples, X Tennessee samples, X New York samples
 
 ## Filter to isolate individuals with samples at both times, and control treatment only for provisioning
 # to only have samples from unmanipulated birds
 FC_alphaData <- F_alphaData %>%
   filter(!(Individual_Treatment %in% c("Dulled", "Low_Tape", "Predator") & Capture_Number == "3"))
+
 
 # Subset to only control birds for differences
 FCD_alphaData <-subset(FC_alphaData, Individual_Treatment == "Control")
@@ -99,12 +134,20 @@ FCD_alphaData <- FCD_alphaData %>%
   group_by(Individual_Band) %>%
   mutate(Mass_Difference = diff(Mass[Capture_Number %in% c(1, 3)]))
 
+FCD_alphaData <- FCD_alphaData %>%
+  group_by(Individual_Band) %>%
+  mutate(Chao1_DifferenceT = diff(Chao1T[Capture_Number %in% c(1, 3)]))
+FCD_alphaData <- FCD_alphaData %>%
+  group_by(Individual_Band) %>%  
+  mutate(Shannon_DifferenceT = diff(ShannonT[Capture_Number %in% c(1, 3)]))
+
 # Add column Capture with Incubation or Provisioning, based on Capture Number
 alphaData$Capture <- ifelse(alphaData$Capture_Number == 1, "Incubation", "Provisioning")
 
 #Reorder so locations in alphabetical order (only need to do once and it will apply to all plots)
 
 alphaData$Location <- factor(alphaData$Location, levels=c("Alaska", "New_York", "Tennessee", "Wyoming"))
+alphaData$Location <- factor(alphaData$Location, levels=c("New_York", "Tennessee", "Wyoming", "Alaska"))
 
 #Reorder so captures are in order (only need to do once and it will apply to all plots)
 
@@ -114,21 +157,24 @@ alphaData$Capture_Number <- factor(alphaData$Capture_Number, levels=c("1", "3"))
 FCI_alphaData <- FCD_alphaData %>%
   filter(!(Capture_Number == "3"))
 
+FCP_alphaData <- FCD_alphaData %>%
+  filter(!(Capture_Number == "1"))
+
 # Split data into incubation and provisioning
 
 incubation <-subset(alphaData, Capture_Number == "1")
-table(incubation$Capture_Number) #224 samples
+table(incubation$Location) #224 samples
 
 provisioning <-subset(alphaData, Capture_Number == "3")
 provisioning <-subset(provisioning, Individual_Treatment == "Control")
-table(provisioning$Capture_Number) #53
+table(provisioning$Location) #53
 samples
 
 # Split data into Location
 
 # Alaska
 
-table(alphaData_Alaska$Location) #72 samples
+table(Alaska$Location) #72 samples
 Alaska <- subset(FCI_alphaData, Location == "Alaska") # Alaska, filtered, control, incubation
 
 
@@ -149,6 +195,8 @@ alphaData_New_York <- subset(alphaData, Location == "New_York")
 table(alphaData_New_York$Location) # 159 samples
 New_York <- subset(FCI_alphaData, Location == "New_York") # NY, filtered, control, incubation
 
+# remove Wyoming 
+alphaData2 <- filter(alphaData, !Location == "Wyoming")
 ################ Check Data, Transform as Needed ##############################
 # check data spread
 hist(alphaData$Shannon) # negatively skewed ~ tail to the left
@@ -158,12 +206,10 @@ hist(FCI_alphaData$Chao1_Difference)
 
 
 # transform with Tukey
-library(rcompanion)
 alphaData$ShannonT <- transformTukey(alphaData$Shannon)
 alphaData$Chao1T <- transformTukey(alphaData$Chao1)
 
 
-location_colors <- c("#B31B1B", "#B2B4B2", "blue", "green")
 ggplot(alphaData, aes(x = Location, y = ShannonT, fill = factor(Capture))) +
   geom_boxplot(position = position_dodge(width = 0.8)) +
   labs(title = "ShannonT by Location during Incubation and Provisioning",
@@ -179,26 +225,35 @@ ggplot(alphaData, aes(x = Location, y = Chao1T, fill = factor(Capture))) +
   scale_fill_manual(values = location_colors)
 
 ##### LM Log Alpha Microbial Diversity x Population #####
-library(lme4)
-library(lmerTest)
-library(emmeans)
-library(gtsummary)
+
 
 # Shannon Tukey at Inc x Location
 
 ##### LM Alpha Microbial Diversity x Population #####
 
 # ShannonT at Inc x Location 
-mod_STincub_location <- lmer(ShannonT ~ Location + Age + (1|Site), data = incubation) # 
+mod_STincub_location <- lmer(ShannonT ~ Location + Age + run + (1|Site), data = incubation) # 
 summary(mod_STincub_location, ddf = "Kenward-Roger")
-tab_model(mod_STincub_location, p.val = "kr", show.df = TRUE, file = "mod_results_ST_incub_location.html")
+
+
+mod_STincub_location %>% tbl_regression(exponentiate = FALSE,
+  pvalue_fun = label_style_pvalue(digits = 3),) |>
+     bold_p(t = 0.05) |>
+    bold_labels() |>
+    italicize_levels() %>% 
+    as_gt() %>% gt::tab_caption("Shannon (Tukey) across Locations during Incubation ")
 
 # Posthoc pairwise tests
 
-emmeans_stI_L <- emmeans(mod_STincub_location, list(pairwise~Location), adjust = "tukey") # 
+emmeans_stI_L <- emmeans(mod_STincub_location, pairwise~Location, adjust = "tukey") # 
 emmeans_stI_L
 
-ggplot(incubation, aes(x = Location, y = ShannonT, color = Location)) +
+contrast_df <- as.data.frame(emmeans_stI_L$contrasts)
+contrast_df %>%
+  kable(caption = "emmeans: ShannonT across locations during incubation") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+ggplot(incubation, aes(x = Location, y = ShannonT, fill = Location)) +
   geom_boxplot() +
   theme_bw() +
   theme(panel.grid.major = element_blank(),  # Remove major gridlines
@@ -206,53 +261,18 @@ ggplot(incubation, aes(x = Location, y = ShannonT, color = Location)) +
         legend.position = "bottom") + 
   labs(title = "Shannon (Tukey) at Incubation",
        x = "Shannon", y = "Location", fill = "Location") +
-  scale_color_manual(values = location_colors)
+  scale_fill_manual(values = location_colors)
 
 
 
-library(ggplot2)
-library(emmeans)
-library(ggpubr)
+
+location_colors <- c("#4682B4", "#B31B1B","#f77f00", "darkgreen"  )
+
 
 # Extract pairwise comparisons
-pairwise_df <- as.data.frame(emmeans_stI_L$`pairwise differences of Location`)
-
-# Prepare comparisons for plotting
-pairwise_df <- pairwise_df %>%
-  mutate(
-    p_label = ifelse(p.value < 0.001, "***",
-                     ifelse(p.value < 0.01, "**",
-                            ifelse(p.value < 0.05, "*", "ns"))),  # Star significance notation
-    group1 = sub(" - .*", "", contrast),  # Extract first location
-    group2 = sub(".*- ", "", contrast),   # Extract second location
-    y.position = seq(max(incubation$ShannonT) + 0.1, by = 0.1, length.out = n()))
-
-# Boxplot with significance brackets
-ggplot(incubation, aes(x = Location, y = ShannonT, color = Location)) +
-  geom_boxplot(alpha = 0.5) +  
-  stat_pvalue_manual(pairwise_df, label = "p_label", 
-                     xmin = "group1", xmax = "group2", y.position = max(incubation$ShannonT) + 0.1) +  
-  theme_bw() +
-  theme(panel.grid.major = element_blank(),  
-        panel.grid.minor = element_blank(),
-        legend.position = "bottom") + 
-  labs(title = "Shannon (Tukey) at Incubation",
-       x = "Location", y = "Shannon Diversity Index", fill = "Location") +
-  scale_color_manual(values = location_colors)
-
-
-colnames(pairwise_df)
+pairwise_df <- as.data.frame(emmeans_stI_L$contrasts)
 colnames(pairwise_df)[1] <- "contrast"
 
-
-library(ggplot2)
-library(ggpubr)
-library(dplyr)
-
-# Step 1: Ensure the contrast column is named correctly
-colnames(pairwise_df)[1] <- "contrast"
-
-# Step 2: Format comparisons correctly
 pairwise_df <- pairwise_df %>%
   mutate(
     contrast = as.character(contrast),  # Ensure it's character type
@@ -273,19 +293,16 @@ pairwise_df <- pairwise_df %>%
   )
 
 
-# Check column names in 'incubation'
-colnames(incubation)
 
-# If 'Location' is not a factor, convert it
 incubation$Location <- as.factor(incubation$Location)
 
-# Step 3: Plot with proper brackets
-ggplot(incubation, aes(x = Location, y = ShannonT, color = Location)) +  # Use 'fill' to color the boxes
-  geom_boxplot(position = position_dodge(width = 0.8)) +
+ggplot(incubation, aes(x = Location, y = ShannonT, color = Location, fill = Location)) +  # Use 'fill' to color the boxes
+  geom_boxplot(position = position_dodge(width = 0.8), alpha = 0.75) +
   stat_pvalue_manual(pairwise_df, label = "p_label", 
                      xmin = "group1", xmax = "group2", 
                      y.position = "y.position") +  
   scale_color_manual(values = location_colors) +
+  scale_fill_manual(values = location_colors) +
   theme_bw() +
   theme(panel.grid.major = element_blank(),  
         panel.grid.minor = element_blank(),
@@ -299,12 +316,28 @@ ggplot(incubation, aes(x = Location, y = ShannonT, color = Location)) +  # Use '
 # ChaoT at Inc x Location 
 mod_CTincub_location <- lmer(Chao1T ~ Location + Age + (1|Site), data = incubation) # 
 summary(mod_CTincub_location, ddf = "Kenward-Roger")
-tab_model(mod_STincub_location, p.val = "kr", show.df = TRUE, file = "mod_results_ST_incub_location.html")
+qqnorm(resid(mod_CTincub_location))
+
+
+mod_CTincub_location %>% tbl_regression(exponentiate = FALSE,
+                                        pvalue_fun = label_style_pvalue(digits = 3)) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>% 
+  as_gt() %>% gt::tab_caption("Chao1T (Tukey) across Locations during Incubation ")
+
+library(gtsummary)
+library(gt)
 
 # Posthoc pairwise tests
 
-emmeans_ctI_L <- emmeans(mod_CTincub_location, list(pairwise~Location), adjust = "tukey") # LOG FAITH
+emmeans_ctI_L <- emmeans(mod_CTincub_location, pairwise ~ Location, adjust = "tukey") # 
 emmeans_ctI_L
+
+contrast_df <- as.data.frame(emmeans_ctI_L$contrasts)
+contrast_df %>%
+  kable(caption = "emmeans: Chao1T across locations during incubation") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Extract pairwise comparisons
 pairwise_df <- as.data.frame(emmeans_ctI_L$`pairwise differences of Location`)
@@ -333,11 +366,12 @@ pairwise_df <- pairwise_df %>%
 
 
 # Step 3: Plot with proper brackets
-ggplot(incubation, aes(x = Location, y = Chao1T, color = Location)) +  # Use 'fill' to color the boxes
-  geom_boxplot(position = position_dodge(width = 0.8)) +
+ggplot(incubation, aes(x = Location, y = Chao1T, fill = Location, color = Location)) +  # Use 'fill' to color the boxes
+  geom_boxplot(position = position_dodge(width = 0.8), alpha = 0.75) +
   stat_pvalue_manual(pairwise_df, label = "p_label", 
                      xmin = "group1", xmax = "group2", 
                      y.position = "y.position") +  
+  scale_fill_manual(values = location_colors) +
   scale_color_manual(values = location_colors) +
   theme_bw() +
   theme(panel.grid.major = element_blank(),  
@@ -349,9 +383,18 @@ ggplot(incubation, aes(x = Location, y = Chao1T, color = Location)) +  # Use 'fi
 
 # Shannon Difference
 
-mod_s_diff_location <- lmer(Shannon_Difference ~ Location + ShannonT + (1|Site), data = FCD_alphaData)
+mod_s_diff_location <- lmer(Shannon_DifferenceT ~ Location + ShannonT + Age + (1|Site), data = FCI_alphaData)
 summary(mod_s_diff_location, ddf = "Kenward-Roger")
-tab_model(mod_LOGfaithpd_diff_location, p.val = "kr", show.df = TRUE, file = "mod_results_LOGfaithpd_diff_location.html")
+
+mod_s_diff_location <- lmer(ShannonT ~ Location*Capture + Age + (1|Site) +(1|Individual_Band), data = F_alphaData)
+summary(mod_s_diff_location, ddf = "Kenward-Roger")
+
+mod_s_diff_location %>% tbl_regression(exponentiate = FALSE, 
+                                     pvalue_fun = label_style_pvalue(digits = 3),) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>% 
+  as_gt() %>% gt::tab_caption("Shannon (Tukey) across Locations and Captures ")
 
 # Posthoc pairwise tests
 
@@ -359,28 +402,69 @@ emmeans_sd_L <- emmeans(mod_s_diff_location, list(pairwise~Location), adjust = "
 emmeans_sd_L
 
 
-ggplot(FCD_alphaData, aes(x = Location, y = Shannon_Difference, color = Location)) +  # Use 'fill' to color the boxes
-  geom_boxplot(position = position_dodge(width = 0.8)) +
-  
+# Extract pairwise comparisons
+pairwise_df <- as.data.frame(emmeans_sd_L$`pairwise differences of Location, Capture`)
+colnames(pairwise_df)[1] <- "contrast"
+
+pairwise_df <- pairwise_df %>%
+  mutate(
+    contrast = as.character(contrast),  # Ensure it's character type
+    p_label = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ "ns"  # Not significant
+    ),
+    group1 = sub(" - .*", "", contrast),  # Extract first location
+    group2 = sub(".*- ", "", contrast)    # Extract second location
+  ) %>%
+  filter(p_label != "ns") %>%  # 🚀 Remove non-significant comparisons
+  mutate(
+    y.position = seq(max(F_alphaData$ShannonT) + 0.2,  # Start higher
+                     by = 0.15,  # Increase spacing between brackets
+                     length.out = n())  
+  )
+
+
+
+ggplot(FCI_alphaData, aes(x = Location, y = Shannon_DifferenceT, color = Location, fill = Location)) +  # Use 'fill' to color the boxes
+  geom_boxplot(position = position_dodge(width = 0.8), alpha = 0.75) +
   scale_color_manual(values = location_colors) +
+  scale_fill_manual(values = location_colors) +
   theme_bw() +
   theme(panel.grid.major = element_blank(),  
         panel.grid.minor = element_blank(),
         legend.position = "bottom") + 
-  labs(title = "Shannon Difference Across Locations",
-       x = "Location", y = "Difference in Shannon", fill = "Location") 
+  labs(title = "Shannon (Tukey) between Incubation and Provisioning ",
+       x = "Capture", y = "Shannon Diversity Index (Tukey)", fill = "Location") 
 
+contrast_df <- as.data.frame(emmeans_sd_L$`pairwise differences of Location, Capture`)
+contrast_df %>%
+  kable(caption = "emmeans: ShannonT between captures and locations") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 10)
 
 ### Chao1 Difference
 
 
-mod_c_diff_location <- lmer(Chao1_Difference ~ Location + Chao1T + (1|Site), data = FCD_alphaData)
+mod_c_diff_location <- lmer(Chao1_DifferenceT ~ Location + Chao1T + Age + (1|Site), data = FCI_alphaData)
 summary(mod_c_diff_location, ddf = "Kenward-Roger")
-tab_model(mod_LOGfaithpd_diff_location, p.val = "kr", show.df = TRUE, file = "mod_results_LOGfaithpd_diff_location.html")
+
+mod_c_diff_location <- lmer(Chao1T ~ Location*Capture + Age + (1|Site) + (1|Individual_Band), data = F_alphaData)
+summary(mod_c_diff_location, ddf = "Kenward-Roger")
+
+mod_c_diff_location %>% tbl_regression(exponentiate = FALSE, 
+                                       pvalue_fun = label_style_pvalue(digits = 3),) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>% 
+  as_gt() %>% gt::tab_caption("Chao1 (Tukey) across Locations and Captures ")
 
 # Posthoc pairwise tests
 
 emmeans_cd_L <- emmeans(mod_c_diff_location, list(pairwise~Location), adjust = "tukey")
+emmeans_cd_L
+
+emmeans_cd_L <- emmeans(mod_c_diff_location, list(pairwise~Location*Capture), adjust = "tukey")
 emmeans_cd_L
 
 ggplot(FCD_alphaData, aes(x = Location, y = Chao1_Difference, color = Location)) +  # Use 'fill' to color the boxes
@@ -393,7 +477,79 @@ ggplot(FCD_alphaData, aes(x = Location, y = Chao1_Difference, color = Location))
   labs(title = "Chao1 Difference Across Locations",
        x = "Location", y = "Difference in Chao1", fill = "Location") 
 
+ggplot(F_alphaData, aes(x = Capture, y = Chao1T, color = Location, fill = Location)) +  # Use 'fill' to color the boxes
+  geom_boxplot(position = position_dodge(width = 0.8), alpha = 0.75) +
+  facet_wrap(~Location) +
+  scale_color_manual(values = location_colors) +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom") + 
+  labs(title = "Chao1 (Tukey) between Incubation and Provisioning ",
+       x = "Capture", y = "Chao1 Diversity Index (Tukey)", fill = "Location") 
 
+
+contrast_df <- as.data.frame(emmeans_cd_L$`pairwise differences of Location, Capture`)
+contrast_df %>%
+  kable(caption = "emmeans: Chao1T between captures and locations") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 10)
+########## Provisioning ############
+
+# ShannonT at Prov x Location 
+mod_STp_location <- lmer(ShannonT ~ Location + Age + (1|Site), data = provisioning) # 
+summary(mod_STp_location, ddf = "Kenward-Roger")
+tab_model(mod_STincub_location, p.val = "kr", show.df = TRUE, file = "mod_results_ST_incub_location.html")
+
+# Posthoc pairwise tests
+
+emmeans_stp_L <- emmeans(mod_STp_location, list(pairwise~Location), adjust = "tukey") # 
+emmeans_stp_L
+
+
+location_colors <- c("#4682B4", "#B31B1B","#f77f00", "darkgreen"  )
+
+
+# Extract pairwise comparisons
+pairwise_df <- as.data.frame(emmeans_stp_L$`pairwise differences of Location`)
+colnames(pairwise_df)[1] <- "contrast"
+
+pairwise_df <- pairwise_df %>%
+  mutate(
+    contrast = as.character(contrast),  # Ensure it's character type
+    p_label = case_when(
+      p.value < 0.001 ~ "***",
+      p.value < 0.01 ~ "**",
+      p.value < 0.05 ~ "*",
+      TRUE ~ "ns"  # Not significant
+    ),
+    group1 = sub(" - .*", "", contrast),  # Extract first location
+    group2 = sub(".*- ", "", contrast)    # Extract second location
+  ) %>%
+ # filter(p_label != "ns") %>%  # 🚀 Remove non-significant comparisons
+  mutate(
+    y.position = seq(max(provisioning$ShannonT) + 0.2,  # Start higher
+                     by = 0.15,  # Increase spacing between brackets
+                     length.out = n())  
+  )
+
+
+
+provisioning$Location <- as.factor(provisioning$Location)
+
+ggplot(provisioning, aes(x = Location, y = ShannonT, color = Location, fill = Location)) +  # Use 'fill' to color the boxes
+  geom_boxplot(position = position_dodge(width = 0.8), alpha = 0.5) +
+  stat_pvalue_manual(pairwise_df, label = "p_label", 
+                     xmin = "group1", xmax = "group2", 
+                     y.position = "y.position") +  
+  scale_color_manual(values = location_colors) +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),  
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom") + 
+  labs(title = "Shannon (Tukey) at Provisioning",
+       x = "Location", y = "Shannon Diversity Index (Tukey)", fill = "Location")
 
 
 ##### LM Phenotypic Flexibility: Mass Loss x Alpha Diversity (initial and change) ##### 
@@ -447,18 +603,36 @@ emmeans(mod_mass_prov_location, list(pairwise~Location), adjust = "tukey")
 
 mod_mass_diff_location <- lmer(Mass_Difference ~ Location + Age + (1|Site), data = FCIM_alphaData)
 summary(mod_mass_diff_location, ddf = "Kenward-Roger")
-tab_model(mod_mass_diff_location, p.val = "kr", show.df = TRUE, file = "mod_results_mass_diff_location.html")
+
+mod_mass_diff_location %>% tbl_regression() %>% 
+  as_gt() %>% gt::tab_caption("Mass Difference across Locations")
 
 # Posthoc pairwise tests
 
-emmeans(mod_mass_diff_location, list(pairwise~Location), adjust = "tukey")
+emm <- emmeans(mod_mass_diff_location, list(pairwise~Location), adjust = "tukey")
+
+contrast_df <- as.data.frame(emm$`pairwise differences of Location`)
+contrast_df %>%
+  kable(caption = "emmeans: Mass Difference across Locations") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
 
 # Mass Difference x ShannoT at Inc
 
-mod_MD_stInc <- lmer(Mass_Difference ~ scale(ShannonT)*Location + Age + (1|Site), data = FCIM_alphaData)
-summary(mod_MD_stInc, ddf = "Kenward-Roger")
+mod <- lmer(Mass_Difference ~ scale(ShannonT) + Location + Age +run + (1|Site), data = FCIM_alphaData)
+summary(mod, ddf = "Kenward-Roger")
 tab_model(mod_MD_FPDInc, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDInc.html")
 
+mod %>%
+  tbl_regression(exponentiate = FALSE,
+                 pvalue_fun = label_style_pvalue(digits = 3)) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_caption("Chao1T at Incubation vs Mass Loss") %>%
+  gt::tab_source_note(
+    source_note = paste("n =", nrow(FCIM_alphaData))
+  )
 # Posthoc pairwise tests
 
 emmeans(mod_MD_stInc, list(pairwise~Location), adjust = "tukey")
@@ -466,8 +640,8 @@ emmeans(mod_MD_stInc, list(pairwise~Location), adjust = "tukey")
 
 # Mass Difference x Chao1 at Inc
 
-mod_MD_ctInc <- lmer(Mass_Difference ~ scale(Chao1T)*Location + Age + (1|Site), data = FCIM_alphaData)
-summary(mod_MD_ctInc, ddf = "Kenward-Roger")
+mod <- lmer(Mass_Difference ~ scale(Chao1T) + Location + run+ Age + (1|Site), data = FCIM_alphaData)
+summary(mod, ddf = "Kenward-Roger")
 tab_model(mod_MD_FPDInc, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDInc.html")
 
 # Posthoc pairwise tests
@@ -476,47 +650,179 @@ emmeans(mod_MD_ctInc, list(pairwise~Location), adjust = "tukey")
 
 
 
-# Mass Difference x Faith PD at Inc - TN 
+# Mass Difference x GM at Inc - TN 
 
 mod_MD_SIncTN <- lm(Mass_Difference ~ scale(ShannonT), data = Tennessee)
 summary(mod_MD_SIncTN, ddf = "Kenward-Roger")
-tab_model(mod_MD_FPDIncTN, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDIncTN.html")
 
+mod_MD_SIncTN %>% tbl_regression(exponentiate = FALSE,
+                                        pvalue_fun = label_style_pvalue(digits = 3),) |>  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>% 
+  as_gt() %>% gt::tab_caption("TN: Shannon (Tukey) Incubation vs Mass Loss")
 
+mod_MD_SIncTN <- lm(Mass_Difference ~ scale(Chao1T), data = Tennessee)
+summary(mod_MD_SIncTN, ddf = "Kenward-Roger")
+qqnorm(resid(mod_MD_SIncTN))
 
-# Mass Difference x Faith PD at Inc - NY #################### - Significant
+mod_MD_SIncTN %>% tbl_regression(exponentiate = FALSE,
+                                 pvalue_fun = label_style_pvalue(digits = 3),) |>  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>% 
+  as_gt() %>% gt::tab_caption("TN: Chao (Tukey) Incubation vs Mass Loss")
+
+# Mass Difference x GM at Inc - NY ##
 
 mod_MD_SIncNY <- lm(Mass_Difference ~ scale(ShannonT), data = New_York)
 summary(mod_MD_SIncNY, ddf = "Kenward-Roger")
-tab_model(mod_MD_FPDIncNY, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDIncNY.html")
 
+mod_MD_SIncNY %>% tbl_regression(exponentiate = FALSE,
+                                 pvalue_fun = label_style_pvalue(digits = 3),) |>  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>% 
+  as_gt() %>% gt::tab_caption("NY: Shannon (Tukey) Incubation vs Mass Loss")
 
 
 # Mass Difference x Faith PD at Inc - AK # - Not significant
 
-mod_MD_STIncAK <- lm(Mass_Difference ~ scale(ShannonT)
-                     , data = Alaska)
+mod_MD_STIncAK <- lm(Mass_Difference ~ scale(ShannonT), data = Alaska)
 summary(mod_MD_STIncAK, ddf = "Kenward-Roger") # p = 0.887
-tab_model(mod_MD_FPDIncAK, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDIncAK.html")
+
+mod_MD_STIncAK %>%
+  tbl_regression(exponentiate = FALSE,
+                 pvalue_fun = label_style_pvalue(digits = 3)) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_caption("AK: Shannon (Tukey) Incubation vs Mass Loss") %>%
+  gt::tab_source_note(
+    source_note = paste("n =", nrow(Alaska))
+  )
+
+mod_MD_STIncAK <- lm(Mass_Difference ~ scale(Chao1T), data = Alaska)
+summary(mod_MD_STIncAK, ddf = "Kenward-Roger") # p = 0.887
+
+mod_MD_STIncAK %>%
+  tbl_regression(exponentiate = FALSE,
+                 pvalue_fun = label_style_pvalue(digits = 3)) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_caption("AK: Chao1 (Tukey) Incubation vs Mass Loss") %>%
+  gt::tab_source_note(
+    source_note = paste("n =", nrow(Alaska))
+  )
+
+####### mass 
+
+mod <- lmer(Mass ~ scale(ShannonT)*Capture*Location + Age + run+  (1|Individual_Band) 
+            + (1|Site), data = alphaData)
+summary(mod, ddf = "Kenward-Roger") # 
+
+visreg(mod, "ShannonT", by = "Capture",
+       type = "conditional",  # Controls for random effects
+       ylab = "Mass", 
+       xlab = "Shannon (Tukey)",
+       gg = TRUE) 
+
+ggplot(alphaData, aes(x = Chao1T, y = Mass, color = Location, fill = Location)) + geom_point(alpha = 0.4) +
+  scale_color_manual(values = location_colors) +
+ facet_wrap(~Capture) + 
+  geom_smooth(method = "lm") +
+ scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  labs(
+    x = "Chao1 Diversity Index (Tukey)",
+    y = "Mass (g)",
+    title = "Chao1 diversity as a predictor of mass across the breeding season",
+  )
+  
+m <- emmeans(mod, list(pairwise~scale(ShannonT)*Location*Capture), adjust = "tukey")
+
+contrast_df <- as.data.frame(m$`pairwise differences of ShannonT, Location, Capture`)
+contrast_df %>%
+  kable(caption = "emmeans: ShannonT between captures and locations") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), font_size = 10)
+
+
+mod <- lmer(Mass ~ Chao1T*Capture_Number + Location + Age + (1|Individual_Band) 
+            + (1|Site), data = alphaData2)
+summary(mod, ddf = "Kenward-Roger")
+
+mod_MD_S_L<- lmer(Mass_Difference ~ scale(ShannonT)*Location + Age + Mass + (1|Site), data = FCIM_alphaData)
+summary(mod_MD_S_L, ddf = "Kenward-Roger")
+
+emmeans(mod_MD_S_L, list(pairwise~Location), adjust = "tukey")
+
+mod_MD_C_L<- lmer(Mass_Difference ~ scale(Chao1T)*Location + Age + Mass + (1|Site), data = FCIM_alphaData)
+summary(mod_MD_C_L, ddf = "Kenward-Roger")
+
+emmeans(mod_MD_S_L, list(pairwise~Location), adjust = "tukey")
+
+ggplot(FCIM_alphaData, aes(x = Shannon_DifferenceT, y = Mass_Difference, color = Location, fill = Location)) + geom_point(alpha = 0.5) +
+  scale_color_manual(values = location_colors) +
+  #  facet_wrap(~Capture) + 
+  geom_smooth(method = "lm") +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  labs(
+    x = "Difference in Shannon Diversity Index (Tukey)",
+    y = "Mass Loss (g)",
+    title = "Difference in Shannon diversity as a predictor of mass loss",
+  )
+##### prov
+mod_MD_S_L<- lmer(Mass_Difference ~ scale(ShannonT)*Location + Age + (1|Site), data = FCP_alphaData)
+summary(mod_MD_S_L, ddf = "Kenward-Roger")
+
+emmeans(mod_MD_S_L, list(pairwise~Location), adjust = "tukey")
+
+mod_MD_C_L<- lmer(Mass_Difference ~ scale(Chao1T)*Location + Age + (1|Site), data = FCP_alphaData)
+summary(mod_MD_C_L, ddf = "Kenward-Roger")
+
+emmeans(mod_MD_C_L, list(pairwise~Location), adjust = "tukey")
+
+###### mass difference x GM 
+
+mod <- lmer(Mass_Difference ~ scale(ShannonT)*Capture*Location + Age + (1|Individual_Band) 
+            + (1|Site), data = FCD_alphaData)
+summary(mod, ddf = "Kenward-Roger") # 
+
+visreg(mod, "ShannonT", by = "Capture",
+       type = "conditional",  # Controls for random effects
+       ylab = "Mass", 
+       xlab = "Shannon (Tukey)",
+       gg = TRUE) 
+
+ggplot(FCD_alphaData, aes(x = ShannonT, y = Mass_Difference, color = Location, fill = Location)) + geom_point(alpha = 0.4) +
+  scale_color_manual(values = location_colors) +
+  facet_wrap(~Capture) + 
+  geom_smooth(method = "lm") +
+  scale_fill_manual(values = location_colors) +
+  theme_bw() +
+  labs(
+    x = "Shannon Diversity Index (Tukey)",
+    y = "Mass Loss (g)",
+    title = "Shannon diversity as a predictor of mass loss across the breeding season",
+  )
 
 
 
-#### Mass Difference x Faith PD Difference - Not significant ####
+#### Mass Difference x GM Difference - Not significant ####
 View(FCIM_alphaData)
 ################## or mass 2 ~ shannon 2 + shannon1 + mass 1
 # All locations
-mod_MD_SD_L<- lmer(Mass_Difference ~ Shannon_Difference + Location + Age + (1|Site), data = FCIM_alphaData)
+mod_MD_SD_L<- lmer(Mass_Difference ~ scale(Shannon_DifferenceT) + Location + Age + (1|Site), data = FCIM_alphaData)
 summary(mod_MD_SD_L, ddf = "Kenward-Roger")
-tab_model(mod_MD_FPDD_L, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDD.html")
 
 # Posthoc pairwise tests
 emmeans(mod_MD_SD_L, list(pairwise~Location), adjust = "tukey")
 
 
 # All locations
-mod_MD_CD_L <- lmer(Mass_Difference ~ Chao1_Difference +Location + Age + (1|Site), data = FCIM_alphaData)
+mod_MD_CD_L <- lmer(Mass_Difference ~ scale(Chao1_DifferenceT) + Location + Age + (1|Site), data = FCIM_alphaData)
 summary(mod_MD_CD_L, ddf = "Kenward-Roger")
-tab_model(mod_MD_FPDD_L, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDD.html")
 
 # Posthoc pairwise tests
 emmeans(mod_MD_CD_L, list(pairwise~Location), adjust = "tukey")
@@ -524,34 +830,66 @@ emmeans(mod_MD_CD_L, list(pairwise~Location), adjust = "tukey")
 # Mass Difference x Faith PD Difference - TN
 
 # TN
-mod_MD_FPDD_TN <- lm(Mass_Difference ~ Shannon_Difference, data = Tennessee)
-summary(mod_MD_FPDD_TN, ddf = "Kenward-Roger") # p - 0,48
-tab_model(mod_MD_FPDD_TN, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDD_TN.html")
+mod <- lm(Mass_Difference ~ scale(Shannon_DifferenceT), data = Tennessee)
+summary(mod, ddf = "Kenward-Roger") # p - 0,48
 
+mod %>%
+  tbl_regression(exponentiate = FALSE,
+                 pvalue_fun = label_style_pvalue(digits = 3)) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_caption("TN: Difference in Chao1T vs Mass Loss") %>%
+  gt::tab_source_note(
+    source_note = paste("n =", nrow(Tennessee))
+  )
+
+mod <- lm(Mass_Difference ~ scale(Chao1_DifferenceT), data = Tennessee)
+summary(mod_MD_FPDD_TN, ddf = "Kenward-Roger") 
 # Mass Difference x Faith PD Difference - NY
 
 # NY
-mod_MD_FPDD_NY <- lm(Mass_Difference ~ Shannon_Difference, data = New_York)
+mod <- lm(Mass_Difference ~ scale(Shannon_DifferenceT), data = New_York)
 summary(mod_MD_FPDD_NY, ddf = "Kenward-Roger") # p - 0.543
-tab_model(mod_MD_FPDD_NY, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDD_NY.html")
+
+mod %>%
+  tbl_regression(exponentiate = FALSE,
+                 pvalue_fun = label_style_pvalue(digits = 3)) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_caption("NY: Difference in Chao1T vs Mass Loss") %>%
+  gt::tab_source_note(
+    source_note = paste("n =", nrow(New_York))
+  )
+
+mod <- lm(Mass_Difference ~ scale(Chao1_DifferenceT), data = New_York)
+summary(mod_MD_FPDD_NY, ddf = "Kenward-Roger")
 
 
 # Mass Difference x Faith PD Difference - AK
 
 # AK
-mod_MD_FPDD_AK <- lm(Mass_Difference ~ Shannon_Difference, data = Alaska)
+mod <- lm(Mass_Difference ~ scale(Shannon_DifferenceT), data = Alaska)
+summary(mod_MD_FPDD_AK, ddf = "Kenward-Roger")
+
+mod %>%
+  tbl_regression(exponentiate = FALSE,
+                 pvalue_fun = label_style_pvalue(digits = 3)) |>
+  bold_p(t = 0.05) |>
+  bold_labels() |>
+  italicize_levels() %>%
+  as_gt() %>%
+  gt::tab_caption("AK: Difference in Chao1T vs Mass Loss") %>%
+  gt::tab_source_note(
+    source_note = paste("n =", nrow(Alaska))
+  )
+mod <- lm(Mass_Difference ~ scale(Chao1_DifferenceT), data = Alaska)
 summary(mod_MD_FPDD_AK, ddf = "Kenward-Roger") # p - 0.6318
-tab_model(mod_MD_FPDD_AK, p.val = "kr", show.df = TRUE, file = "mod_MD_FPDD_AK.html")
 
 
-
-p <- ggplot(FCI_alphaData, aes(x=Individual_Treatment, y=Mass_Difference, fill = Location)) +
-  geom_boxplot()
-p
-
-mod_IncMass_FPD <- lm(FaithPD ~ Mass, data = Alaska)
-summary(mod_IncMass_FPD, ddf = "Kenward-Roger")
-# NY - 0.00489 **
 
 ggplot(FCI_alphaData, aes(x = Mass, y = ShannonT, color = Location)) +
   geom_point() +
@@ -561,7 +899,7 @@ ggplot(FCI_alphaData, aes(x = Mass, y = ShannonT, color = Location)) +
         panel.grid.minor = element_blank(),
         legend.position = "bottom") + 
   labs(title = "Mass at Incubation vs Shannon at Incubation",
-       x = "Mass (g) at Incubation", y = "Faith's PD at Incubation", fill = "Location") +
+       x = "Mass (g) at Incubation", y = "Shannon (Tukey) at Incubation", fill = "Location") +
   scale_color_manual(values = location_colors)
 
 mod_IncMass_Fledge <- lm(Fledged_Num ~ Mass, data = FCI_alphaData)
@@ -604,34 +942,33 @@ View(avg_mass)
 table(FCIM_alphaData$Location)
 
 ######## Plots
-library(ggplot2)
 location_colors <- c("#f77f00", "#B31B1B", "#4682B4")
 
 # Mass Loss
-avg_mass <- FC_alphaData %>%
+avg_mass <- alphaData %>%
   group_by(Capture, Location) %>%
   summarise(AvgMass = mean(Mass, na.rm = TRUE))
 View(avg_mass)
 
 # Plot avg mass at Incubation to Provisioning
-ggplot(avg_mass, aes(x= Capture_Number, y = AvgMass, group = Location, color = Location)) +
-  geom_line(size = .75) +
-  geom_point(size = 3) +
-  labs( y = "Body mass (g)") +
-  scale_color_manual(values = c("New_York" = "#B31B1B",  # Cornell red for Location A
-                                "Tennessee" = "#f77f00",  # Cornell red for Location B
-                                "Alaska" = "#4682B4"))  +
+ggplot(alphaData, aes(x = Capture, y = Mass, group = Location, color = Location, fill = Location)) +
+  stat_summary(fun = mean, geom = "point", size = 3) +
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0.1) +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(y = "Body mass (g)") +
+  scale_color_manual(values = location_colors) +
+  scale_fill_manual(values = location_colors) +
   theme_minimal() +
   theme(axis.text.x = element_text(size = 12, color = "black"),
         axis.title.y = element_text(size = 12, color = "black"),
         axis.title.x = element_blank(),
-        legend.text = element_text(size = 12, color = "black")) +
-  coord_cartesian(ylim = c(18.75, 22.8)) +
-  theme(panel.grid.major = element_blank(),  # Remove major gridlines
+        legend.text = element_text(size = 12, color = "black"),
+        panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
-        legend.position = "bottom") + 
-  theme(axis.line = element_line(color = "black", size = 0.25))
-ggsave("geo_bodymass_locations.jpeg", plot = last_plot(), device = "jpeg")
+        legend.position = "inside",
+        legend.position.inside = (c(0.8, 0.8)),
+        axis.line = element_line(color = "black", size = 0.25))
 
 
 ggplot(FCI_alphaData, aes(x = Location, y = ShannonT, fill = Location)) +
@@ -785,7 +1122,21 @@ ggplot(Alaska, aes(x = FaithPD, y = Mass_Difference, color = Location)) +
   scale_y_continuous(breaks = seq(-5, 0, by = 1)) +
   scale_color_manual(values = "#4682B4")
 
-# Faith PD Difference x Mass Loss
+# 
+ggplot(FCIM_alphaData, aes(x = Chao1T, y = Mass_Difference, color = Location)) +
+geom_point() +
+  geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),  # Remove major gridlines
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom") + 
+  labs(title = "Mass Loss vs Chao1T At Incubation",
+       x = "Chao1T at Incubation", y = "Change in Mass (g)", fill = "Location") +
+  scale_color_manual(values = location_colors)
+
+
+
+# MB Difference x Mass Loss
 ggplot(FCIM_alphaData, aes(x = Shannon_Difference, y = Mass_Difference, color = Location)) +
   geom_point() +
   geom_smooth(method = "lm", se = FALSE, linetype = 2) +
@@ -840,6 +1191,22 @@ ggplot(Alaska, aes(x = FaithPD_Difference, y = Mass_Difference, color = Location
        x = "Difference in Faith's PD (Prov-Inc)", y = "Change in Mass (g)", fill = "Location") +
   coord_cartesian(ylim = c(-5.5, 0)) +
   scale_color_manual(values = "#4682B4")
+
+### Chao Difference 
+
+ggplot(FCIM_alphaData, aes(x = Chao1_Difference, y = Mass_Difference, color = Location)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, linetype = 2) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),  # Remove major gridlines
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom",
+        axis.title = element_text(size = 14),
+        axis.text = element_text(size = 12)) + 
+  labs(title = "Mass Loss vs Difference in Chao1",
+       x = "Difference in Chao1 (Prov-Inc)", y = "Change in Mass (g)", fill = "Location") +
+  scale_color_manual(values = location_colors)
+
 ####
 
 citation("pairwiseAdonis")
@@ -882,6 +1249,7 @@ data_TN <- FC_alphaData %>% filter(Location == "Tennessee")
 data_NY <- FC_alphaData %>% filter(Location == "New_York")
 data_NY <- data_NY %>% filter(!is.na(Mass))
 data_AK <- FC_alphaData %>% filter(Location == "Alaska")
+data_WY <- alphaData %>% filter(Location == "Wyoming")
 
 # Calculate mean mass and standard error for each time point at each location
 summary_TN <- data_TN %>%
@@ -904,6 +1272,11 @@ summary_AK <- data_AK %>%
             std_error = sd(Mass) / sqrt(n()),
             sd_mass = sd(Mass))
 
+
+summary_WY <- data_WY %>%
+  summarise(mean_mass = mean(Mass),
+            std_error = sd(Mass) / sqrt(n()),
+            sd_mass = sd(Mass))
 
 # Display summaries
 print("TN:")
@@ -942,6 +1315,6 @@ ggplot(summary_combined, aes(x = Capture_Number, y = mean_mass, group = Location
         axis.title = element_text(size = 14),
         axis.text = element_text(size = 12)) +
   scale_x_discrete(breaks = c(1, 3), labels = c("Incubation", "Provisioning")) +
-  scale_color_manual(values = c("New_York" = "#B31B1B",  # Cornell red for Location A
-                                "Tennessee" = "#f77f00",  # Cornell red for Location B
+  scale_color_manual(values = c("New_York" = "#B31B1B",  # Cornell red
+                                "Tennessee" = "#f77f00",  
                                 "Alaska" = "#4682B4"))
